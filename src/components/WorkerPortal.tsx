@@ -1,4 +1,4 @@
-import React, { useEffect, useId, useRef, useState } from "react";
+import React, { useCallback, useEffect, useId, useRef, useState } from "react";
 import { useApp } from "../context/SupabaseContext";
 import type { Html5Qrcode } from "html5-qrcode";
 import {
@@ -37,9 +37,16 @@ const ScannerModal: React.FC<{
 }> = ({ action, onScan, onClose }) => {
   const containerRef = useRef<HTMLDivElement>(null);
   const scannerRef = useRef<Html5Qrcode | null>(null);
+  const onScanRef = useRef(onScan);
+  const onCloseRef = useRef(onClose);
   const scannerElementId = useId().replace(/:/g, "-");
   const [status, setStatus] = useState<"idle" | "scanning" | "processing" | "error">("idle");
   const [error, setError] = useState<string>("");
+
+  useEffect(() => {
+    onScanRef.current = onScan;
+    onCloseRef.current = onClose;
+  }, [onScan, onClose]);
 
   useEffect(() => {
     let cancelled = false;
@@ -66,8 +73,8 @@ const ScannerModal: React.FC<{
               // ignore stop errors
             }
             try {
-              await onScan(decodedText);
-              if (!cancelled) onClose();
+              await onScanRef.current(decodedText);
+              if (!cancelled) onCloseRef.current();
             } catch (e: any) {
               if (!cancelled) {
                 setStatus("error");
@@ -104,7 +111,7 @@ const ScannerModal: React.FC<{
           });
       }
     };
-  }, [onScan, onClose, scannerElementId]);
+  }, [scannerElementId]);
 
   const isIn = action === "in";
 
@@ -184,12 +191,16 @@ export const WorkerPortal: React.FC = () => {
   const checkedIn = !!todayAttendance?.checkInAt;
   const checkedOut = !!todayAttendance?.checkOutAt;
 
-  const handleScan = async (code: string) => {
+  const handleScan = useCallback(async (code: string) => {
     if (!scannerAction) return;
     await submitAttendance(code, scannerAction);
     setToast(scannerAction === "in" ? "출근이 등록되었습니다." : "퇴근이 등록되었습니다.");
     setTimeout(() => setToast(""), 2500);
-  };
+  }, [scannerAction, submitAttendance]);
+
+  const handleCloseScanner = useCallback(() => {
+    setScannerAction(null);
+  }, []);
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-slate-50 to-stone-100 font-sans flex flex-col">
@@ -295,7 +306,7 @@ export const WorkerPortal: React.FC = () => {
         <ScannerModal
           action={scannerAction}
           onScan={handleScan}
-          onClose={() => setScannerAction(null)}
+          onClose={handleCloseScanner}
         />
       )}
     </div>
