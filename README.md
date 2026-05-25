@@ -1,20 +1,34 @@
-<div align="center">
-<img width="1200" height="475" alt="GHBanner" src="https://ai.google.dev/static/site-assets/images/share-ais-513315318.png" />
-</div>
+# Checkin App Template
 
-# Run and deploy your AI Studio app
+Supabase 기반 출퇴근/근태 관리 템플릿입니다.
 
-This contains everything you need to run your app locally.
+## Stack
 
-View your app in AI Studio: https://ai.studio/apps/69731864-fb29-4c36-a2d9-2b3515a4c2f1
+- React
+- Vite
+- Supabase
 
-## Run Locally
+## Local Development
 
-**Prerequisites:**  Node.js
-
-
-1. Install dependencies:
+1. 의존성 설치
    `npm install`
-2. Set the `GEMINI_API_KEY` in [.env.local](.env.local) to your Gemini API key
-3. Run the app:
+2. 환경변수 설정
+   `.env.example`을 참고해 `.env.local` 생성
+3. 개발 서버 실행
    `npm run dev`
+
+## Environment Variables
+
+- `VITE_SUPABASE_URL`
+- `VITE_SUPABASE_PUBLISHABLE_KEY`
+
+## Build
+
+```bash
+npm run build
+```
+
+## Notes
+
+- `.env.local`은 커밋하지 않습니다.
+- Vercel 배포 시 동일한 환경변수를 프로젝트 설정에 등록해야 합니다.
