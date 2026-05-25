@@ -1,0 +1,52 @@
+-- ============================================================
+-- 첫 관리자 계정 부트스트랩 (1회만 실행)
+-- ============================================================
+-- 실행 방법:
+--   1) 아래 두 변수 값을 수정 (ID, 비밀번호)
+--   2) Supabase 대시보드 → SQL Editor 에서 실행
+--   3) 또는 대시보드 Authentication → Add user → Create new user 로
+--      email/password 직접 입력 후, profiles.role 을 admin 으로 UPDATE
+--
+-- SQL 만으로 처리하려면 auth.users 에 직접 INSERT 해야 하는데
+-- 비밀번호 해시 형식이 까다로워 권장 X.
+-- 대신 대시보드 UI 사용을 권장합니다.
+-- ============================================================
+
+-- ─── 방법 A: 대시보드에서 사용자 생성 후 SQL 로 역할 보정 ───
+--
+-- 1) Authentication → Users → "Add user" → "Create new user"
+--    Email:    yourid@admin.cm.local   ← 도메인 반드시 admin.cm.local
+--    Password: (원하는 비밀번호)
+--    Auto Confirm User: ✅ 체크
+--
+-- 2) handle_new_auth_user 트리거가 자동으로 profiles.role='admin' 생성.
+--    혹시 누락되었다면 아래 보정 쿼리 실행:
+
+-- update profiles
+-- set role = 'admin'
+-- where id = (select id from auth.users where email = 'yourid@admin.cm.local');
+
+
+-- ─── 방법 B: SQL 만으로 (비권장) ──────────────────────────────
+--
+-- Supabase 의 auth.users 비밀번호 컬럼은 bcrypt 해시여서
+-- 직접 INSERT 하려면 crypt() 사용:
+--
+-- insert into auth.users (
+--   instance_id, id, aud, role,
+--   email, encrypted_password,
+--   email_confirmed_at, created_at, updated_at,
+--   raw_app_meta_data, raw_user_meta_data,
+--   confirmation_token, email_change, email_change_token_new, recovery_token
+-- ) values (
+--   '00000000-0000-0000-0000-000000000000',
+--   gen_random_uuid(),
+--   'authenticated',
+--   'authenticated',
+--   'yourid@admin.cm.local',
+--   crypt('your_password_here', gen_salt('bf')),
+--   now(), now(), now(),
+--   '{"provider":"email","providers":["email"]}'::jsonb,
+--   '{}'::jsonb,
+--   '', '', '', ''
+-- );

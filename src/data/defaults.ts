@@ -1,0 +1,271 @@
+import { AllSettings, Worker, Holiday } from "../types";
+
+export const DEFAULT_SETTINGS: AllSettings = {
+  workTime: {
+    defaultCheckIn: "08:00",
+    defaultCheckOut: "17:00",
+    lunchStart: "12:00",
+    lunchEnd: "13:00",
+    lunchDuration: 1,
+    standardDailyHours: 8,
+    standardWeeklyHours: 40,
+  },
+  overtimeRules: {
+    weekdayOvertimeRate: 1.5,
+    holidayRate: 1.5,
+    holidayOvertimeRate: 2.0,
+    nightRate: 0.5,
+    nightStart: "22:00",
+    nightEnd: "06:00",
+  },
+  dailyWorkerRules: {
+    earlyMorningStart: "05:00",
+    earlyMorningEnd: "08:00",
+    earlyMorningWorkDays: 0.5,
+    afternoonOvertimeStart: "17:00",
+    afternoonOvertimeEnd: "19:30",
+    afternoonOvertimeWorkDays: 0.5,
+    eveningOvertimeStart: "19:30",
+    eveningOvertimeEnd: "22:00",
+    eveningOvertimeWorkDays: 0.5,
+    holidayRate: 1.0,
+  },
+  insuranceRates: {
+    nationalPensionRate: 0.045,
+    healthInsuranceRate: 0.03545,
+    longTermCareRate: 0.1295,
+    employmentInsuranceRate: 0.009,
+    effectiveFrom: "2026-01-01",
+  },
+  taxRules: {
+    businessIncomeRate: 0.033,
+    dailyWorkerTaxFreeLimit: 150000,
+    dailyWorkerTaxRate: 0.06,
+    localTaxRate: 0.1,
+  },
+  allowanceDefaults: {
+    meal: 200000,
+    transport: 200000,
+    phone: 100000,
+  },
+  site: {
+    companyName: "씨엠(CM)건설",
+    siteAddress: "충남 당진시 신평면 신평로 45",
+    siteLocation: { lat: 37.1234, lng: 126.4567 },
+    allowedRadius: 100,
+    paymentDay: 15,
+  },
+  annualLeave: {
+    firstYearDays: 11,
+    secondYearDays: 15,
+    maxDays: 25,
+    accrualMethod: "monthly",
+  },
+};
+
+export const DEFAULT_HOLIDAYS: Holiday[] = [
+  // 2026 National Holidays
+  { date: "2026-01-01", name: "신정 (새해)", type: "public" },
+  { date: "2026-03-01", name: "삼일절", type: "public" },
+  { date: "2026-05-05", name: "어린이날", type: "public" },
+  { date: "2026-06-06", name: "현충일", type: "public" },
+  { date: "2026-08-15", name: "광복절", type: "public" },
+  { date: "2026-10-03", name: "개천절", type: "public" },
+  { date: "2026-10-09", name: "한글날", type: "public" },
+  { date: "2026-12-25", name: "기독탄신일 (성탄절)", type: "public" },
+
+  // 2027 National Holidays
+  { date: "2027-01-01", name: "신정", type: "public" },
+  { date: "2027-03-01", name: "삼일절", type: "public" },
+  { date: "2027-05-05", name: "어린이날", type: "public" },
+  { date: "2027-06-06", name: "현충일", type: "public" },
+  { date: "2027-08-15", name: "광복절", type: "public" },
+  { date: "2027-10-03", name: "개천절", type: "public" },
+  { date: "2027-10-09", name: "한글날", type: "public" },
+  { date: "2027-12-25", name: "성탄절", type: "public" },
+
+  // 2028 National Holidays
+  { date: "2028-01-01", name: "신정", type: "public" },
+  { date: "2028-03-01", name: "삼일절", type: "public" },
+  { date: "2028-05-05", name: "어린이날", type: "public" },
+  { date: "2028-06-06", name: "현충일", type: "public" },
+  { date: "2028-08-15", name: "광복절", type: "public" },
+  { date: "2028-10-03", name: "개천절", type: "public" },
+  { date: "2028-10-09", name: "한글날", type: "public" },
+  { date: "2028-12-25", name: "성탄절", type: "public" },
+
+  // 2029 National Holidays
+  { date: "2029-01-01", name: "신정", type: "public" },
+  { date: "2029-03-01", name: "삼일절", type: "public" },
+  { date: "2029-05-05", name: "어린이날", type: "public" },
+  { date: "2029-06-06", name: "현충일", type: "public" },
+  { date: "2029-08-15", name: "광복절", type: "public" },
+  { date: "2029-10-03", name: "개천절", type: "public" },
+  { date: "2029-10-09", name: "한글날", type: "public" },
+  { date: "2029-12-25", name: "성탄절", type: "public" },
+
+  // 2030 National Holidays
+  { date: "2030-01-01", name: "신정", type: "public" },
+  { date: "2030-03-01", name: "삼일절", type: "public" },
+  { date: "2030-05-05", name: "어린이날", type: "public" },
+  { date: "2030-06-06", name: "현충일", type: "public" },
+  { date: "2030-08-15", name: "광복절", type: "public" },
+  { date: "2030-10-03", name: "개천절", type: "public" },
+  { date: "2030-10-09", name: "한글날", type: "public" },
+  { date: "2030-12-25", name: "성탄절", type: "public" },
+];
+
+export const MOCK_WORKERS: Worker[] = [
+  {
+    workerId: "CM-2026-001",
+    name: "김철수",
+    englishName: "Chulsoo Kim",
+    nationality: "대한민국",
+    residentNumber: "880512-1456789",
+    phone: "010-1234-5678",
+    address: "서울시 마포구 독막로 12",
+    employmentType: "salary",
+    contractDate: "2026-01-01",
+    joinDate: "2026-01-10",
+    retireDate: null,
+    duty: "과장",
+    department: "관리본부",
+    salarySettings: {
+      monthlyBase: 4500000,
+      hourlyRate: 15000,
+      dailyRate: 150000,
+      allowances: {
+        meal: null, // inherits 200,000 from company defaults
+        transport: 250000, // overridden customized local transport allowance
+        phone: null, // inherits 100,000
+      },
+    },
+    deductionSettings: {
+      housingFee: 0,
+      cashAdvance: 0,
+      customDeductions: [],
+    },
+    bankSettings: {
+      bankName: "신한은행",
+      accountNo: "110-345-234567",
+      holder: "김철수",
+    },
+    loginId: "010-1234-5678",
+    initialPassword: "password123!",
+    language: "ko",
+  },
+  {
+    workerId: "CM-2026-002",
+    name: "박동근",
+    englishName: "Dongkeun Park",
+    nationality: "대한민국",
+    residentNumber: "921204-1023456",
+    phone: "010-9876-5432",
+    address: "충남 당진시 신평면 신평길 88",
+    employmentType: "hourly",
+    contractDate: "2026-02-15",
+    joinDate: "2026-03-01",
+    retireDate: null,
+    duty: "기사",
+    department: "현장시공팀",
+    salarySettings: {
+      monthlyBase: 0,
+      hourlyRate: 18000,
+      dailyRate: 180000,
+      allowances: {
+        meal: 150000, // overridden custom meal fee
+        transport: null, // inherits default transport
+        phone: 0, // no phone allowance given
+      },
+    },
+    deductionSettings: {
+      housingFee: 150000, // 숙소료 15만원 공제
+      cashAdvance: 300000, // 가불금 30만원
+      customDeductions: [{ name: "가스 전기 요금", amount: 35000 }],
+    },
+    bankSettings: {
+      bankName: "국민은행",
+      accountNo: "405602-04-123456",
+      holder: "박동근",
+    },
+    loginId: "010-9876-5432",
+    initialPassword: "password456!",
+    language: "ko",
+  },
+  {
+    workerId: "CM-2026-003",
+    name: "이민우",
+    englishName: "Minwoo Lee",
+    nationality: "대한민국",
+    residentNumber: "950711-1345621",
+    phone: "010-3333-4444",
+    address: "충남 아산시 배방읍 광장로 25",
+    employmentType: "daily",
+    contractDate: "2026-04-10",
+    joinDate: "2026-04-15",
+    retireDate: null,
+    duty: "반장",
+    department: "골조공사팀",
+    salarySettings: {
+      monthlyBase: 0,
+      hourlyRate: 0,
+      dailyRate: 220000, // 1일 단가 22만원
+      allowances: {
+        meal: 0,
+        transport: null,
+        phone: 0,
+      },
+    },
+    deductionSettings: {
+      housingFee: 200000, // 숙소공제 20만원
+      cashAdvance: 0,
+      customDeductions: [],
+    },
+    bankSettings: {
+      bankName: "하나은행",
+      accountNo: "123-456789-01234",
+      holder: "이민우",
+    },
+    loginId: "010-3333-4444",
+    initialPassword: "password789!",
+    language: "ko",
+  },
+  {
+    workerId: "CM-2026-004",
+    name: "John Doe",
+    englishName: "John Doe",
+    nationality: "미국",
+    residentNumber: "US-990812-F",
+    phone: "010-5555-6666",
+    address: "평택시 팽성읍 안정리",
+    employmentType: "business",
+    contractDate: "2026-05-01",
+    joinDate: "2026-05-10",
+    retireDate: null,
+    duty: "용접공",
+    department: "특수시공팀",
+    salarySettings: {
+      monthlyBase: 0,
+      hourlyRate: 0,
+      dailyRate: 250000, // 3.3% 사업소득자 1일 단가 25만원
+      allowances: {
+        meal: 0,
+        transport: 0,
+        phone: 0,
+      },
+    },
+    deductionSettings: {
+      housingFee: 0,
+      cashAdvance: 100000,
+      customDeductions: [],
+    },
+    bankSettings: {
+      bankName: "기업은행",
+      accountNo: "010-5555-6666-01",
+      holder: "John Doe",
+    },
+    loginId: "010-5555-6666",
+    initialPassword: "password000!",
+    language: "en",
+  },
+];

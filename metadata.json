@@ -1,0 +1,6 @@
+{
+  "name": "Workforce Settings & Worker Directory",
+  "description": "A configuration-first manager for company and site parameters, worker registry profiles, and automated hourly/salary payroll rules synchronized in real-time with Firestore.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
