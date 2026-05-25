@@ -11,7 +11,10 @@ import {
   Loader2,
   Briefcase,
   TrendingUp,
+  FileSpreadsheet,
+  Download,
 } from "lucide-react";
+import { exportLaborLedger, exportAttendanceBook } from "../utils/excelExporter";
 
 // ============================================================
 // 날짜 헬퍼
@@ -47,7 +50,9 @@ type Preset = "thisMonth" | "lastMonth" | "last7" | "custom";
 // AttendanceTab
 // ============================================================
 export const AttendanceTab: React.FC = () => {
-  const { workers, fetchAttendance } = useApp();
+  const { workers, fetchAttendance, settings, holidays } = useApp();
+  const [exporting, setExporting] = useState<"" | "ledger" | "book">("");
+  const [exportError, setExportError] = useState("");
 
   const today = useMemo(() => new Date(), []);
   const [preset, setPreset] = useState<Preset>("thisMonth");
@@ -114,6 +119,49 @@ export const AttendanceTab: React.FC = () => {
 
   const isMissingCheckout = (r: AttendanceRecord) =>
     r.checkInAt && !r.checkOutAt && r.workDate < ymd(today);
+
+  // ── 엑셀 내보내기 ────────────────────────────────────────
+  const runExport = async (kind: "ledger" | "book") => {
+    if (!settings) {
+      setExportError("설정값을 불러오는 중입니다. 잠시 후 다시 시도해주세요.");
+      return;
+    }
+    setExporting(kind);
+    setExportError("");
+    try {
+      // 조회 기간의 시작일 기준 연/월 추출 (한 달 단위 export)
+      const [yStr, mStr] = fromDate.split("-");
+      const year = parseInt(yStr, 10);
+      const month = parseInt(mStr, 10);
+
+      // 해당 월 전체 데이터로 다시 조회 (필터 무관, 근로자 전체)
+      const monthFrom = `${yStr}-${mStr}-01`;
+      const lastDay = new Date(year, month, 0).getDate();
+      const monthTo = `${yStr}-${mStr}-${String(lastDay).padStart(2, "0")}`;
+      const monthRecords = await fetchAttendance({ fromDate: monthFrom, toDate: monthTo });
+
+      const ctx = {
+        year,
+        month,
+        workers,
+        records: monthRecords,
+        holidays,
+        settings,
+        companyName: settings.site.companyName,
+      };
+
+      if (kind === "ledger") {
+        await exportLaborLedger(ctx);
+      } else {
+        await exportAttendanceBook(ctx);
+      }
+    } catch (e: any) {
+      console.error(e);
+      setExportError(e?.message || "엑셀 생성 중 오류가 발생했습니다.");
+    } finally {
+      setExporting("");
+    }
+  };
 
   return (
     <div className="space-y-4">
@@ -201,6 +249,50 @@ export const AttendanceTab: React.FC = () => {
             조회
           </button>
         </div>
+      </div>
+
+      {/* 엑셀 내보내기 */}
+      <div className="bg-white p-4 rounded-lg border border-slate-200 shadow-xs">
+        <div className="flex items-center justify-between gap-3 flex-wrap">
+          <div className="flex items-center gap-2 text-xs font-bold text-slate-700">
+            <FileSpreadsheet className="w-3.5 h-3.5 text-emerald-600" />
+            엑셀 내보내기
+            <span className="text-[10px] font-normal text-slate-500 font-mono">
+              · 시작일({fromDate})의 월 기준
+            </span>
+          </div>
+          <div className="flex gap-2">
+            <button
+              onClick={() => runExport("ledger")}
+              disabled={exporting !== "" || !settings}
+              className="px-3 py-1.5 text-xs font-semibold rounded border border-slate-200 bg-white text-slate-700 hover:bg-slate-50 disabled:opacity-50 flex items-center gap-1.5"
+            >
+              {exporting === "ledger" ? (
+                <Loader2 className="w-3.5 h-3.5 animate-spin" />
+              ) : (
+                <Download className="w-3.5 h-3.5" />
+              )}
+              노무대장 (통합)
+            </button>
+            <button
+              onClick={() => runExport("book")}
+              disabled={exporting !== "" || !settings}
+              className="px-3 py-1.5 text-xs font-semibold rounded border border-emerald-200 bg-emerald-50 text-emerald-800 hover:bg-emerald-100 disabled:opacity-50 flex items-center gap-1.5"
+            >
+              {exporting === "book" ? (
+                <Loader2 className="w-3.5 h-3.5 animate-spin" />
+              ) : (
+                <Download className="w-3.5 h-3.5" />
+              )}
+              출퇴근명부 (4시트)
+            </button>
+          </div>
+        </div>
+        {exportError && (
+          <div className="mt-2 p-2 bg-rose-50 border border-rose-200 rounded text-[11px] text-rose-700 flex items-center gap-1.5">
+            <AlertCircle className="w-3 h-3" /> {exportError}
+          </div>
+        )}
       </div>
 
       {/* 요약 카드 */}
