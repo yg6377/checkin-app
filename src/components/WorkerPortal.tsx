@@ -132,11 +132,16 @@ const ScannerModal: React.FC<{
         </div>
 
         <div className="p-4 bg-black">
-          <div
-            id={scannerElementId}
-            ref={containerRef}
-            className="w-full aspect-square rounded-2xl overflow-hidden bg-slate-900 relative"
-          />
+          <div className="relative w-full aspect-square rounded-2xl overflow-hidden bg-slate-900">
+            <div
+              id={scannerElementId}
+              ref={containerRef}
+              className="absolute inset-0"
+            />
+            <div className="pointer-events-none absolute inset-0 flex items-center justify-center">
+              <div className="h-60 w-60 max-h-[70%] max-w-[70%] rounded-[2rem] border-4 border-white/85 shadow-[0_0_0_9999px_rgba(15,23,42,0.28)]" />
+            </div>
+          </div>
         </div>
 
         <div className="px-5 py-4 bg-white border-t border-gray-100 text-xs">
