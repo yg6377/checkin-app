@@ -1,5 +1,27 @@
 import { AllSettings, Worker } from "../types";
 
+function floorToTen(amount: number): number {
+  return Math.floor(amount / 10) * 10;
+}
+
+export function getOrdinaryHourlyRate(worker: Worker, settings: AllSettings): number {
+  if (worker.employmentType === "salary") {
+    return worker.salarySettings.hourlyRate || 0;
+  }
+
+  if (worker.employmentType === "hourly") {
+    return settings.workTime.hourlyOrdinaryWageRate || worker.salarySettings.hourlyRate || 10320;
+  }
+
+  return worker.salarySettings.dailyRate / settings.workTime.standardDailyHours;
+}
+
+export function getHourlyOrdinaryMonthlyBase(settings: AllSettings): number {
+  const rate = settings.workTime.hourlyOrdinaryWageRate || 10320;
+  const hours = settings.workTime.hourlyOrdinaryMonthlyHours || 209;
+  return rate * hours;
+}
+
 export interface MonthlySimulationInput {
   standardDays: number; // normal working days (e.g. 20 days)
   earlyMorningDays: number; // 조출 일수
@@ -13,6 +35,7 @@ export interface MonthlySimulationInput {
 
 export interface PayrollCalculationResult {
   basePay: number; // 기본급
+  ordinaryHourlyRate: number; // 통상시급
   allowances: {
     meal: number;
     transport: number;
@@ -84,31 +107,26 @@ export function calculatePayroll(
   let holidayPay = 0;
   let nightPay = 0;
   let totalManDays = 0;
+  const ordinaryHourlyRate = getOrdinaryHourlyRate(worker, settings);
 
   // 1. Calculate Gross Pay before taxes/insurances based on Employment Type
   if (type === "salary") {
     // 월급제 (Salaried Worker): Uses fixed monthly salary
     basePay = worker.salarySettings.monthlyBase;
 
-    // OT hourly rate = monthlyBase / 209 (standard Korean hourly divisor) * rate
-    const standardHourlyDivisor = 209;
-    const computedHourlyRate = basePay / standardHourlyDivisor;
-
     // Overtime pay (using rate from settings/overtimeRules)
-    overtimePay = input.overtimeHoursWeekly * computedHourlyRate * settings.overtimeRules.weekdayOvertimeRate;
+    overtimePay = input.overtimeHoursWeekly * ordinaryHourlyRate * settings.overtimeRules.weekdayOvertimeRate;
 
     // Holiday working pay
-    holidayPay = input.holidayDays * (settings.workTime.standardDailyHours) * computedHourlyRate * settings.overtimeRules.holidayRate;
+    holidayPay = input.holidayDays * (settings.workTime.standardDailyHours) * ordinaryHourlyRate * settings.overtimeRules.holidayRate;
 
     // Night duty allowance (gets nightRate additional multiplier)
-    nightPay = input.nightHours * computedHourlyRate * settings.overtimeRules.nightRate;
+    nightPay = input.nightHours * ordinaryHourlyRate * settings.overtimeRules.nightRate;
 
   } else if (type === "hourly") {
-    // 시급제 (Hourly Worker): Multiplies hourly rate by simulated work hours
-    const hr = worker.salarySettings.hourlyRate;
-    const stdWorkHours = input.standardDays * settings.workTime.standardDailyHours;
-
-    basePay = stdWorkHours * hr;
+    // 시급제: 통상임금 기준으로 고정 월급을 지급하고, 추가 근로는 별도 가산
+    const hr = ordinaryHourlyRate;
+    basePay = getHourlyOrdinaryMonthlyBase(settings);
 
     // Overtime (weekday rate)
     overtimePay = input.overtimeHoursWeekly * hr * settings.overtimeRules.weekdayOvertimeRate;
@@ -184,10 +202,10 @@ export function calculatePayroll(
 
   if (type === "salary" || type === "hourly") {
     // 4 major social insurances apply to Salary & Hourly regular contracts
-    nationalPension = Math.floor(taxableSalary * settings.insuranceRates.nationalPensionRate);
-    healthInsurance = Math.floor(taxableSalary * settings.insuranceRates.healthInsuranceRate);
-    longTermCare = Math.floor(healthInsurance * settings.insuranceRates.longTermCareRate);
-    employmentInsurance = Math.floor(taxableSalary * settings.insuranceRates.employmentInsuranceRate);
+    nationalPension = floorToTen(taxableSalary * settings.insuranceRates.nationalPensionRate);
+    healthInsurance = floorToTen(taxableSalary * settings.insuranceRates.healthInsuranceRate);
+    longTermCare = floorToTen(healthInsurance * settings.insuranceRates.longTermCareRate);
+    employmentInsurance = floorToTen(taxableSalary * settings.insuranceRates.employmentInsuranceRate);
 
     // Standard simplified income tax approximation for illustration (let's use standard sliding scale or simplified 1.5% tax for display)
     // Dynamic calculation: Let's do a basic salary tax of 1.5% to 6% depending on salary
@@ -195,8 +213,8 @@ export function calculatePayroll(
     if (taxableSalary > 4000000) estimatedTaxRate = 0.045;
     else if (taxableSalary > 2500000) estimatedTaxRate = 0.03;
 
-    incomeTax = Math.floor(taxableSalary * estimatedTaxRate);
-    localIncomeTax = Math.floor(incomeTax * settings.taxRules.localTaxRate);
+    incomeTax = floorToTen(taxableSalary * estimatedTaxRate);
+    localIncomeTax = floorToTen(incomeTax * settings.taxRules.localTaxRate);
 
   } else if (type === "daily") {
     // Daily workers enjoy specific taxation: (Daily wage - 150,000 KRW tax-free limit) * 6% tax rate * 45% (which is 1 - 55% write-off deduction)
@@ -211,16 +229,16 @@ export function calculatePayroll(
 
     // Total tax for standard days + additional shifts estimated
     const impliedWorkedDays = input.standardDays + input.holidayDays;
-    incomeTax = Math.floor(dailyTaxAmount * impliedWorkedDays);
-    localIncomeTax = Math.floor(incomeTax * settings.taxRules.localTaxRate);
+    incomeTax = floorToTen(dailyTaxAmount * impliedWorkedDays);
+    localIncomeTax = floorToTen(incomeTax * settings.taxRules.localTaxRate);
 
   } else if (type === "business") {
     // Freelancer/Business Income: Flat rate of 3% business income tax + 0.3% local income tax (total 3.3%)
     const rate = settings.taxRules.businessIncomeRate; // e.g. 0.033
     const businessIncomeTaxOnly = rate / (1 + settings.taxRules.localTaxRate); // approx flat tax structure
 
-    incomeTax = Math.floor(grossSalary * businessIncomeTaxOnly);
-    localIncomeTax = Math.floor(incomeTax * settings.taxRules.localTaxRate);
+    incomeTax = floorToTen(grossSalary * businessIncomeTaxOnly);
+    localIncomeTax = floorToTen(incomeTax * settings.taxRules.localTaxRate);
   }
 
   // Deductions from registry
@@ -246,6 +264,7 @@ export function calculatePayroll(
 
   return {
     basePay: Math.floor(basePay),
+    ordinaryHourlyRate: Math.floor(ordinaryHourlyRate),
     allowances: {
       meal: allowances.meal,
       transport: allowances.transport,

@@ -137,6 +137,7 @@ export const SettingsTab: React.FC = () => {
     e.preventDefault();
     const data = new FormData(e.currentTarget);
     const updated = {
+      ...settings.workTime,
       defaultCheckIn: data.get("defaultCheckIn") as string,
       defaultCheckOut: data.get("defaultCheckOut") as string,
       lunchStart: data.get("lunchStart") as string,
@@ -147,6 +148,18 @@ export const SettingsTab: React.FC = () => {
     };
     updateSetting("workTime", updated);
     alert("시공 근무 기획 일과 설정이 성공적으로 저장되었습니다.");
+  };
+
+  const saveOrdinaryWage = (e: React.FormEvent<HTMLFormElement>) => {
+    e.preventDefault();
+    const data = new FormData(e.currentTarget);
+    const updated = {
+      ...settings.workTime,
+      hourlyOrdinaryWageRate: Number(data.get("hourlyOrdinaryWageRate")) || 10320,
+      hourlyOrdinaryMonthlyHours: Number(data.get("hourlyOrdinaryMonthlyHours")) || 209,
+    };
+    updateSetting("workTime", updated);
+    alert("통상임금 기준 설정이 저장되었습니다.");
   };
 
   const saveOvertime = (e: React.FormEvent<HTMLFormElement>) => {
@@ -251,6 +264,19 @@ export const SettingsTab: React.FC = () => {
     }
   };
 
+  const handleDeleteHoliday = async (holiday: Holiday) => {
+    const kindLabel = holiday.type === "public" ? "공휴일" : "회사지정공휴일";
+    if (!holiday.id) return;
+    if (!window.confirm(`${holiday.date} ${holiday.name} ${kindLabel}을(를) 삭제하시겠습니까?`)) {
+      return;
+    }
+    try {
+      await deleteHoliday(holiday.id);
+    } catch (err: any) {
+      alert("휴일 삭제 실패: " + err.message);
+    }
+  };
+
   const filteredHolidays = holidays.filter((h) => h.date.startsWith(String(selectedYear)));
 
   // Simple pseudo calendar block display for the selected year
@@ -294,12 +320,22 @@ export const SettingsTab: React.FC = () => {
         </button>
 
         <button
+          onClick={() => setActiveSubTab("ordinaryWage")}
+          className={`w-full flex items-center justify-between text-left text-xs px-3 py-2 rounded-md transition font-semibold cursor-pointer ${
+            activeSubTab === "ordinaryWage" ? "bg-slate-900 text-white border-l-4 border-blue-600 shadow-sm font-bold" : "text-slate-650 hover:bg-slate-50"
+          }`}
+        >
+          <span className="flex items-center gap-2"><Coins className="w-3.5 h-3.5 text-blue-500" /> 탭 4: 통상임금 기준</span>
+          <ChevronRight className="w-3 h-3 opacity-60" />
+        </button>
+
+        <button
           onClick={() => setActiveSubTab("insuranceTax")}
           className={`w-full flex items-center justify-between text-left text-xs px-3 py-2 rounded-md transition font-semibold cursor-pointer ${
             activeSubTab === "insuranceTax" ? "bg-slate-900 text-white border-l-4 border-blue-600 shadow-sm font-bold" : "text-slate-650 hover:bg-slate-50"
           }`}
         >
-          <span className="flex items-center gap-2"><Shield className="w-3.5 h-3.5 text-blue-500" /> 탭 4: 4대보험 & 세율</span>
+          <span className="flex items-center gap-2"><Shield className="w-3.5 h-3.5 text-blue-500" /> 탭 5: 4대보험 & 세율</span>
           <ChevronRight className="w-3 h-3 opacity-60" />
         </button>
 
@@ -309,7 +345,7 @@ export const SettingsTab: React.FC = () => {
             activeSubTab === "allowance" ? "bg-slate-900 text-white border-l-4 border-blue-600 shadow-sm font-bold" : "text-slate-650 hover:bg-slate-50"
           }`}
         >
-          <span className="flex items-center gap-2"><HeartHandshake className="w-3.5 h-3.5 text-blue-500" /> 탭 5: 수당 기본값</span>
+          <span className="flex items-center gap-2"><HeartHandshake className="w-3.5 h-3.5 text-blue-500" /> 탭 6: 수당 기본값</span>
           <ChevronRight className="w-3 h-3 opacity-60" />
         </button>
 
@@ -319,7 +355,7 @@ export const SettingsTab: React.FC = () => {
             activeSubTab === "calendar" ? "bg-slate-900 text-white border-l-4 border-blue-600 shadow-sm font-bold" : "text-slate-650 hover:bg-slate-50"
           }`}
         >
-          <span className="flex items-center gap-2"><Calendar className="w-3.5 h-3.5 text-blue-500" /> 탭 6: 공휴일 관리</span>
+          <span className="flex items-center gap-2"><Calendar className="w-3.5 h-3.5 text-blue-500" /> 탭 7: 공휴일 관리</span>
           <ChevronRight className="w-3 h-3 opacity-60" />
         </button>
 
@@ -329,7 +365,7 @@ export const SettingsTab: React.FC = () => {
             activeSubTab === "annualLeave" ? "bg-slate-900 text-white border-l-4 border-blue-600 shadow-sm font-bold" : "text-slate-650 hover:bg-slate-50"
           }`}
         >
-          <span className="flex items-center gap-2"><Layers className="w-3.5 h-3.5 text-blue-500" /> 탭 7: 연차 설정</span>
+          <span className="flex items-center gap-2"><Layers className="w-3.5 h-3.5 text-blue-500" /> 탭 8: 연차 설정</span>
           <ChevronRight className="w-3 h-3 opacity-60" />
         </button>
 
@@ -872,6 +908,62 @@ export const SettingsTab: React.FC = () => {
           </div>
         )}
 
+        {activeSubTab === "ordinaryWage" && (
+          <form onSubmit={saveOrdinaryWage} className="space-y-6">
+            <div>
+              <h3 className="text-lg font-bold text-gray-950 flex items-center gap-2">
+                <Coins className="w-5 h-5 text-gray-500" />
+                시급제 통상임금 기준
+              </h3>
+              <p className="text-xs text-gray-400 mt-1">시급제 근로자를 월급제처럼 고정 월급으로 계산할 때 사용할 통상임금 기준을 설정합니다.</p>
+            </div>
+
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+              <div className="space-y-4">
+                <div>
+                  <label className="block text-xs font-semibold text-gray-500 mb-1">시급제 통상임금 기준 시급</label>
+                  <input
+                    type="number"
+                    name="hourlyOrdinaryWageRate"
+                    defaultValue={settings.workTime.hourlyOrdinaryWageRate ?? 10320}
+                    className="w-full px-3 py-1.5 border border-gray-200 rounded-lg text-sm font-mono"
+                    min="0"
+                    required
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-xs font-semibold text-gray-500 mb-1">월 기준 시간</label>
+                  <input
+                    type="number"
+                    name="hourlyOrdinaryMonthlyHours"
+                    defaultValue={settings.workTime.hourlyOrdinaryMonthlyHours ?? 209}
+                    className="w-full px-3 py-1.5 border border-gray-200 rounded-lg text-sm font-mono"
+                    min="1"
+                    required
+                  />
+                  <span className="text-[10px] text-gray-400">고정 월급 산정식은 `기준 시급 × 월 기준 시간`입니다. 현재 기본값은 209시간입니다.</span>
+                </div>
+              </div>
+
+              <div className="bg-gray-50 p-5 rounded-2xl border border-gray-100 space-y-3 text-xs text-gray-700 leading-relaxed">
+                <p className="font-semibold text-gray-900">운영 메모</p>
+                <p>- 월급제는 `고정 월급 + 잔업수당` 구조로 계산됩니다.</p>
+                <p>- 월급제 잔업수당은 근로자별 `시급` 입력값을 기준으로 계산됩니다.</p>
+                <p>- 시급제는 여기서 설정한 `통상임금 기준 시급 × 월 기준 시간`으로 고정 월급을 계산합니다.</p>
+                <p>- 현재 요청하신 기본값은 `10,320원 × 209시간 = 2,156,880원`입니다.</p>
+              </div>
+            </div>
+
+            <button
+              type="submit"
+              className="w-full flex items-center justify-center gap-2 bg-gray-900 text-white py-2 px-4 rounded-lg text-sm font-semibold hover:bg-gray-800 transition"
+            >
+              <Save className="w-4 h-4" /> 통상임금 기준 저장
+            </button>
+          </form>
+        )}
+
         {/* SUB TAB 4: TAX & SOCIAL INSURANCE RATES */}
         {activeSubTab === "insuranceTax" && (
           <div className="space-y-6">
@@ -1126,7 +1218,7 @@ export const SettingsTab: React.FC = () => {
                   국가지정 공휴일 및 약정 달력 (Holidays Calendar)
                 </h3>
                 <p className="text-xs text-gray-400 mt-1">
-                  2030년까지 공화국 국경일이 기본 내장되어 있으며 관리자 임의의 현장 휴무 지정이 가능합니다.
+                  2030년까지 법정 공휴일이 기본 등록되어 있으며, 관리자 임의의 현장 휴무도 추가 및 삭제할 수 있습니다.
                 </p>
               </div>
 
@@ -1211,9 +1303,9 @@ export const SettingsTab: React.FC = () => {
                           <span className="text-sm text-gray-900 font-semibold">{h.name}</span>
                         </div>
                         <button
-                          onClick={() => deleteHoliday(h.id || "")}
+                          onClick={() => handleDeleteHoliday(h)}
                           className="text-gray-400 hover:text-red-600 p-1.5 hover:bg-gray-100 rounded-full"
-                          title="휴일 지정 파기"
+                          title="휴일 삭제"
                         >
                           <Trash2 className="w-4 h-4" />
                         </button>

@@ -313,6 +313,10 @@ export const SimulatorTab: React.FC = () => {
                   <span className="text-slate-400 block mb-0.5">정산 귀속</span>
                   <span className="font-bold text-slate-800">{new Date().getFullYear()}년 5월 귀속</span>
                 </div>
+                <div>
+                  <span className="text-slate-400 block mb-0.5">통상 시급 기준</span>
+                  <span className="font-bold text-slate-800">₩{result.ordinaryHourlyRate.toLocaleString()}</span>
+                </div>
               </div>
 
               {/* Earnings & Deductions Tables */}
@@ -344,7 +348,7 @@ export const SimulatorTab: React.FC = () => {
                     </div>
 
                     {result.overtimePay > 0 && (
-                      <div className="flex justify-between p-2.5 px-3 bg-stone-50">
+                    <div className="flex justify-between p-2.5 px-3 bg-stone-50">
                         <span className="text-gray-500 flex items-center gap-1">연장 근로 할증수당</span>
                         <span className="font-bold text-gray-900">₩{result.overtimePay.toLocaleString()}</span>
                       </div>
@@ -524,6 +528,14 @@ export const SimulatorTab: React.FC = () => {
                   ) : (
                     <div className="space-y-1">
                       <p className="text-[11px] font-semibold text-blue-900">※ 일반 상용 근로 간이세액 준용:</p>
+                      <p>
+                        - 통상시급 기준: <strong>₩{result.ordinaryHourlyRate.toLocaleString()}</strong>
+                        {selectedWorker.employmentType === "salary"
+                          ? " (월급제 근로자별 잔업 기준 시급)"
+                          : selectedWorker.employmentType === "hourly"
+                            ? ` (시급제 통상임금 기준 시급, 월 ${settings.workTime.hourlyOrdinaryMonthlyHours || 209}시간)`
+                            : ""}
+                      </p>
                       <p>
                         - 근로 연동 과세(소득세): 총급여 규모비례 약정세율 정형화 = <span className="font-semibold text-gray-800">₩{result.deductions.incomeTax.toLocaleString()}</span>
                       </p>

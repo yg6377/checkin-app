@@ -6,6 +6,8 @@ export interface WorkTimeSettings {
   lunchDuration: number; // hours, e.g., 1
   standardDailyHours: number; // e.g., 8
   standardWeeklyHours: number; // e.g., 40
+  hourlyOrdinaryWageRate: number; // e.g., 10320
+  hourlyOrdinaryMonthlyHours: number; // e.g., 209
 }
 
 export interface OvertimeRulesSettings {

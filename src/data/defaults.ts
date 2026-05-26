@@ -9,6 +9,8 @@ export const DEFAULT_SETTINGS: AllSettings = {
     lunchDuration: 1,
     standardDailyHours: 8,
     standardWeeklyHours: 40,
+    hourlyOrdinaryWageRate: 10320,
+    hourlyOrdinaryMonthlyHours: 209,
   },
   overtimeRules: {
     weekdayOvertimeRate: 1.5,

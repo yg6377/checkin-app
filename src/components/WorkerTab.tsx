@@ -3,6 +3,35 @@ import { useApp as useFirebase, WorkerCredentials } from "../context/SupabaseCon
 import { Worker } from "../types";
 import { Search, UserPlus, UserCheck, ShieldAlert, CreditCard, Building, Phone, Briefcase, Trash2, Edit2, X, AlertCircle, KeyRound, Copy, Check } from "lucide-react";
 
+const DEPARTMENT_OPTIONS = [
+  "관리본부",
+  "현장시공팀",
+  "골조공사팀",
+  "설비기공팀",
+  "특수시공팀",
+  "안전관리반",
+  "품질관리팀",
+  "전기공사팀",
+];
+
+const DUTY_OPTIONS = [
+  "사원",
+  "기사",
+  "과장",
+  "반장",
+  "목수",
+  "철근공",
+  "용접공",
+  "설비공",
+  "전기공",
+  "안전관리자",
+];
+
+const withCurrentOption = (options: string[], currentValue: string) => {
+  if (!currentValue || options.includes(currentValue)) return options;
+  return [currentValue, ...options];
+};
+
 export const WorkerTab: React.FC = () => {
   const { workers, addWorker, updateWorker, deleteWorker, resetWorkerPassword, settings } = useFirebase();
   const [credentialsModal, setCredentialsModal] = useState<{
@@ -259,6 +288,9 @@ export const WorkerTab: React.FC = () => {
     if (typeFilter === "all") return matchText;
     return matchText && w.employmentType === typeFilter;
   });
+
+  const departmentOptions = withCurrentOption(DEPARTMENT_OPTIONS, department);
+  const dutyOptions = withCurrentOption(DUTY_OPTIONS, duty);
 
   return (
     <div id="worker-tab-container" className="space-y-4">
@@ -574,23 +606,33 @@ export const WorkerTab: React.FC = () => {
                 <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
                   <div>
                     <label className="block text-xs font-medium text-gray-500 mb-1">소속 부서/팀</label>
-                    <input
-                      type="text"
-                      placeholder="안전관리반 / 설비기공팀"
+                    <select
                       value={department}
                       onChange={(e) => setDepartment(e.target.value)}
-                      className="w-full px-3 py-1.5 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-1 focus:ring-gray-300"
-                    />
+                      className="w-full px-3 py-1.5 border border-gray-200 rounded-lg text-sm bg-white focus:outline-none focus:ring-1 focus:ring-gray-300"
+                    >
+                      <option value="">부서/팀 선택</option>
+                      {departmentOptions.map((option) => (
+                        <option key={option} value={option}>
+                          {option}
+                        </option>
+                      ))}
+                    </select>
                   </div>
                   <div>
                     <label className="block text-xs font-medium text-gray-500 mb-1">배정 직무 / 공종</label>
-                    <input
-                      type="text"
-                      placeholder="기사 / 목수 / 용접조공"
+                    <select
                       value={duty}
                       onChange={(e) => setDuty(e.target.value)}
-                      className="w-full px-3 py-1.5 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-1 focus:ring-gray-300"
-                    />
+                      className="w-full px-3 py-1.5 border border-gray-200 rounded-lg text-sm bg-white focus:outline-none focus:ring-1 focus:ring-gray-300"
+                    >
+                      <option value="">직무 / 공종 선택</option>
+                      {dutyOptions.map((option) => (
+                        <option key={option} value={option}>
+                          {option}
+                        </option>
+                      ))}
+                    </select>
                   </div>
                   <div>
                     <label className="block text-xs font-medium text-gray-500 mb-1">고용 계약 유형 *</label>
@@ -647,15 +689,27 @@ export const WorkerTab: React.FC = () => {
                 </h4>
 
                 {employmentType === "salary" && (
-                  <div>
-                    <label className="block text-xs font-semibold text-blue-700 mb-1">정기 월 약정 기본급 (KRW) *</label>
-                    <input
-                      type="number"
-                      placeholder="Monthly base salary"
-                      value={monthlyBase}
-                      onChange={(e) => setMonthlyBase(e.target.value)}
-                      className="w-full md:w-1/2 px-3 py-1.5 border border-blue-200 bg-blue-50/10 rounded-lg font-mono text-sm focus:outline-none focus:ring-1 focus:ring-blue-300"
-                    />
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    <div>
+                      <label className="block text-xs font-semibold text-blue-700 mb-1">정기 월 약정 기본급 (KRW) *</label>
+                      <input
+                        type="number"
+                        placeholder="Monthly base salary"
+                        value={monthlyBase}
+                        onChange={(e) => setMonthlyBase(e.target.value)}
+                        className="w-full px-3 py-1.5 border border-blue-200 bg-blue-50/10 rounded-lg font-mono text-sm focus:outline-none focus:ring-1 focus:ring-blue-300"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-xs font-semibold text-blue-700 mb-1">잔업수당 기준 시급 (KRW) *</label>
+                      <input
+                        type="number"
+                        placeholder="Overtime hourly basis"
+                        value={hourlyRate}
+                        onChange={(e) => setHourlyRate(e.target.value)}
+                        className="w-full px-3 py-1.5 border border-blue-200 bg-blue-50/10 rounded-lg font-mono text-sm focus:outline-none focus:ring-1 focus:ring-blue-300"
+                      />
+                    </div>
                   </div>
                 )}
 
@@ -692,7 +746,7 @@ export const WorkerTab: React.FC = () => {
                   </p>
                   <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
                     <div>
-                      <label className="block text-xs text-gray-500 mb-1">식사 제공비 재정의 (Meal Allowance)</label>
+                      <label className="block text-xs text-gray-500 mb-1">식대 (Meal Allowance)</label>
                       <input
                         type="number"
                         placeholder="회사 기본값 상속"
@@ -702,7 +756,7 @@ export const WorkerTab: React.FC = () => {
                       />
                     </div>
                     <div>
-                      <label className="block text-xs text-gray-500 mb-1">출퇴근 여비보조 재정의 (Transport)</label>
+                      <label className="block text-xs text-gray-500 mb-1">자가운전보조금 (Transport)</label>
                       <input
                         type="number"
                         placeholder="회사 기본값 상속"
@@ -712,7 +766,7 @@ export const WorkerTab: React.FC = () => {
                       />
                     </div>
                     <div>
-                      <label className="block text-xs text-gray-500 mb-1">통신비 보조 재정의 (Phone)</label>
+                      <label className="block text-xs text-gray-500 mb-1">통신비 (Phone)</label>
                       <input
                         type="number"
                         placeholder="회사 기본값 상속"

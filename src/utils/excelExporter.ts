@@ -35,6 +35,38 @@ function isHolidayDate(date: Date, holidays: Holiday[]): boolean {
   return holidays.some((h) => h.date === key);
 }
 
+type DayCategory = "weekday" | "saturday" | "sunday" | "publicHoliday" | "companyHoliday";
+
+function getDayCategory(date: Date, holidays: Holiday[]): DayCategory {
+  const key = ymd(date);
+  const custom = holidays.find((h) => h.date === key && h.type === "custom");
+  if (custom) return "companyHoliday";
+  const pub = holidays.find((h) => h.date === key && h.type === "public");
+  if (pub) return "publicHoliday";
+  const dow = date.getDay();
+  if (dow === 0) return "sunday";
+  if (dow === 6) return "saturday";
+  return "weekday";
+}
+
+const DAY_FILL_ARGB: Record<DayCategory, string | null> = {
+  weekday: null,
+  saturday: "FFDBEAFE",       // 토 – 연한 파랑
+  sunday: "FFFEE2E2",         // 일 – 연한 빨강
+  publicHoliday: "FFFFE4B5",  // 공휴일 – 연한 주황
+  companyHoliday: "FFE9D5FF", // 회사 휴일 – 연한 보라
+};
+
+function applyDayFill(cell: ExcelJS.Cell, category: DayCategory) {
+  const argb = DAY_FILL_ARGB[category];
+  if (!argb) return;
+  cell.fill = { type: "pattern", pattern: "solid", fgColor: { argb } };
+}
+
+function excelDateUTC(year: number, month1to12: number, day: number): Date {
+  return new Date(Date.UTC(year, month1to12 - 1, day));
+}
+
 // 분 단위 [start, end) 겹침 길이 (분)
 function overlapMin(aStart: number, aEnd: number, bStart: number, bEnd: number): number {
   return Math.max(0, Math.min(aEnd, bEnd) - Math.max(aStart, bStart));
@@ -274,13 +306,18 @@ export async function exportLaborLedger(ctx: ExportContext): Promise<void> {
 
   // 일자 헤더: col 14 (N) 부터 14 + dim - 1
   const dayStartCol = 14;
+  const dayCategoryByD = new Map<number, DayCategory>();
   for (let d = 1; d <= dim; d++) {
     const col = dayStartCol + d - 1;
     ws.mergeCells(3, col, 4, col);
     const c = ws.getCell(3, col);
-    c.value = new Date(ctx.year, ctx.month - 1, d);
+    // UTC 자정으로 저장해 KST 환경에서 하루 밀림(전날 표기) 방지
+    c.value = excelDateUTC(ctx.year, ctx.month, d);
     c.numFmt = "m/d";
     setHeader(c);
+    const cat = getDayCategory(new Date(ctx.year, ctx.month - 1, d), ctx.holidays);
+    dayCategoryByD.set(d, cat);
+    if (cat !== "weekday") applyDayFill(c, cat);
     ws.getColumn(col).width = 7;
   }
 
@@ -385,11 +422,9 @@ export async function exportLaborLedger(ctx: ExportContext): Promise<void> {
         : round2(day.overtime + day.holiday + day.holidayOvertime);
       setCell(ws.getCell(r3, col), otOrManDays || "");
 
-      if (day.isHoliday) {
-        // 휴일 컬럼 살짝 음영
-        [r1, r2, r3].forEach((rr) => {
-          ws.getCell(rr, col).fill = { type: "pattern", pattern: "solid", fgColor: { argb: "FFFFF7ED" } };
-        });
+      const cat = dayCategoryByD.get(d) || "weekday";
+      if (cat !== "weekday") {
+        [r1, r2, r3].forEach((rr) => applyDayFill(ws.getCell(rr, col), cat));
       }
     }
 
@@ -548,7 +583,351 @@ export async function exportLaborLedger(ctx: ExportContext): Promise<void> {
 }
 
 // ============================================================
-// 2) 출퇴근명부 (4시트) — 2605-외국인근로자 출퇴근명부.xlsx 양식
+// 2) 급여명세서 (근로자별 시트) — 급여명세서(월급,일용,시급).xlsx / 급여명세서(사업소득자).xlsx 양식
+// ============================================================
+
+interface PaySummary {
+  basePay: number;
+  overtimePay: number;
+  holidayPay: number;
+  holidayOTPay: number;
+  nightPay: number;
+  allowances: { meal: number; transport: number; phone: number; total: number };
+  nps: number; hi: number; ltc: number; ei: number; it: number; lit: number;
+  housing: number; advance: number; customDed: number;
+  grossSum: number; dedSum: number; netPay: number;
+}
+
+function computePaySummary(w: Worker, a: WorkerMonthAggregate, settings: AllSettings): PaySummary {
+  const allowances = getWorkerAllowances(w, settings);
+  let basePay = 0, overtimePay = 0, holidayPay = 0, holidayOTPay = 0, nightPay = 0;
+
+  if (w.employmentType === "salary") {
+    basePay = w.salarySettings.monthlyBase;
+    const hr = basePay / 209;
+    overtimePay = a.totalOvertime * hr * settings.overtimeRules.weekdayOvertimeRate;
+    holidayPay = a.totalHoliday * hr * settings.overtimeRules.holidayRate;
+    holidayOTPay = a.totalHolidayOvertime * hr * settings.overtimeRules.holidayOvertimeRate;
+    nightPay = a.totalNight * hr * settings.overtimeRules.nightRate;
+  } else if (w.employmentType === "hourly") {
+    const hr = w.salarySettings.hourlyRate;
+    basePay = a.totalBase * hr;
+    overtimePay = a.totalOvertime * hr * settings.overtimeRules.weekdayOvertimeRate;
+    holidayPay = a.totalHoliday * hr * settings.overtimeRules.holidayRate;
+    holidayOTPay = a.totalHolidayOvertime * hr * settings.overtimeRules.holidayOvertimeRate;
+    nightPay = a.totalNight * hr * settings.overtimeRules.nightRate;
+  } else {
+    basePay = a.workedDays * unitRate(w);
+  }
+
+  const taxable = basePay + overtimePay + holidayPay + holidayOTPay + nightPay;
+  let nps = 0, hi = 0, ltc = 0, ei = 0, it = 0, lit = 0;
+  if (w.employmentType === "salary" || w.employmentType === "hourly") {
+    nps = Math.floor(taxable * settings.insuranceRates.nationalPensionRate);
+    hi = Math.floor(taxable * settings.insuranceRates.healthInsuranceRate);
+    ltc = Math.floor(hi * settings.insuranceRates.longTermCareRate);
+    ei = Math.floor(taxable * settings.insuranceRates.employmentInsuranceRate);
+    let r = 0.015;
+    if (taxable > 4000000) r = 0.045; else if (taxable > 2500000) r = 0.03;
+    it = Math.floor(taxable * r);
+    lit = Math.floor(it * settings.taxRules.localTaxRate);
+  } else if (w.employmentType === "daily") {
+    const taxFree = settings.taxRules.dailyWorkerTaxFreeLimit;
+    const tr = settings.taxRules.dailyWorkerTaxRate;
+    const dailyTax = Math.max(0, unitRate(w) - taxFree) * tr * 0.45;
+    it = Math.floor(dailyTax * a.workedDays);
+    lit = Math.floor(it * settings.taxRules.localTaxRate);
+  } else {
+    it = Math.floor(basePay * settings.taxRules.businessIncomeRate / (1 + settings.taxRules.localTaxRate));
+    lit = Math.floor(it * settings.taxRules.localTaxRate);
+  }
+
+  const housing = w.deductionSettings.housingFee || 0;
+  const advance = w.deductionSettings.cashAdvance || 0;
+  const customDed = (w.deductionSettings.customDeductions || []).reduce((s, x) => s + (x.amount || 0), 0);
+  const grossSum = Math.floor(taxable + allowances.meal + allowances.transport + allowances.phone);
+  const dedSum = nps + hi + ltc + ei + it + lit + housing + advance + customDed;
+  const netPay = Math.max(0, grossSum - dedSum);
+
+  return {
+    basePay: Math.floor(basePay),
+    overtimePay: Math.floor(overtimePay),
+    holidayPay: Math.floor(holidayPay),
+    holidayOTPay: Math.floor(holidayOTPay),
+    nightPay: Math.floor(nightPay),
+    allowances,
+    nps, hi, ltc, ei, it, lit,
+    housing, advance, customDed,
+    grossSum, dedSum, netPay,
+  };
+}
+
+export async function exportPayslips(ctx: ExportContext): Promise<void> {
+  const wb = new ExcelJS.Workbook();
+  wb.creator = "Workforce Core";
+  wb.created = new Date();
+
+  const agg = aggregateMonth(ctx);
+  const paymentDay = ctx.settings.site.paymentDay;
+  const payMonth = ctx.month + 1 > 12 ? 1 : ctx.month + 1;
+  const payYear = ctx.month + 1 > 12 ? ctx.year + 1 : ctx.year;
+  const payDateLabel = `${payYear}년 ${payMonth}월 ${paymentDay}일`;
+  const companyName = ctx.companyName || ctx.settings.site.companyName || "";
+
+  const NUM = "#,##0";
+
+  agg.forEach((a, idx) => {
+    const w = a.worker;
+    const isBiz = w.employmentType === "business";
+    const pay = computePaySummary(w, a, ctx.settings);
+
+    const rawName = `${idx + 1}.${w.name || w.workerId}`;
+    const sheetName = rawName.replace(/[\\/?*\[\]:]/g, "_").slice(0, 31);
+    const ws = wb.addWorksheet(sheetName, {
+      pageSetup: { paperSize: 9, orientation: "portrait", fitToPage: true, fitToWidth: 1, fitToHeight: 1, margins: { left: 0.4, right: 0.4, top: 0.5, bottom: 0.4, header: 0.2, footer: 0.2 } },
+    });
+
+    // 컬럼 너비 (양식 기준)
+    ws.getColumn(1).width = 2.5;
+    for (let c = 2; c <= 23; c++) ws.getColumn(c).width = 4.5;
+    ws.getColumn(24).width = 2.5;
+
+    // 행 높이
+    ws.getRow(2).height = 28;
+    for (let r = 4; r <= 20; r++) ws.getRow(r).height = 18;
+    ws.getRow(21).height = 20;
+    ws.getRow(22).height = 24;
+    ws.getRow(23).height = 24;
+
+    // 제목
+    ws.mergeCells("B2:W2");
+    const title = ws.getCell("B2");
+    title.value = `${ctx.year}년 ${ctx.month}월 급여명세서`;
+    title.font = { bold: true, size: 18 };
+    title.alignment = { horizontal: "center", vertical: "middle" };
+
+    // 라벨/값 헬퍼
+    const writeLabel = (range: string, value: any, opts: { bold?: boolean; align?: "left" | "center" | "right" } = {}) => {
+      ws.mergeCells(range);
+      const [start] = range.split(":");
+      const c = ws.getCell(start);
+      c.value = value;
+      c.alignment = { horizontal: opts.align || "left", vertical: "middle" };
+      if (opts.bold) c.font = { bold: true };
+      c.border = ALL_BORDERS;
+    };
+
+    // 4행
+    writeLabel("B4:D4", "사원코드 :", { bold: true });
+    writeLabel("E4:H4", w.workerId);
+    writeLabel("I4:K4", "이       름 :", { bold: true });
+    writeLabel("L4:O4", w.name || "");
+    writeLabel("P4:R4", isBiz ? "계  약  일 :" : "입  사  일 :", { bold: true });
+    writeLabel("S4:W4", w.joinDate || "");
+
+    // 5행
+    writeLabel("B5:D5", "부      서 :", { bold: true });
+    writeLabel("E5:H5", w.department || "");
+    writeLabel("I5:K5", "직       급 :", { bold: true });
+    writeLabel("L5:O5", w.duty || "");
+    writeLabel("P5:R5", "지  급  일 :", { bold: true });
+    writeLabel("S5:W5", payDateLabel);
+
+    // 6행 섹션 헤더
+    const sectionFill = { type: "pattern" as const, pattern: "solid" as const, fgColor: { argb: "FFF1F5F9" } };
+    ws.mergeCells("B6:L6");
+    const payHdr = ws.getCell("B6");
+    payHdr.value = "지  급  내  역";
+    payHdr.font = { bold: true, size: 12 };
+    payHdr.alignment = { horizontal: "center", vertical: "middle" };
+    payHdr.fill = sectionFill;
+    payHdr.border = ALL_BORDERS;
+
+    ws.mergeCells("M6:W6");
+    const dedHdr = ws.getCell("M6");
+    dedHdr.value = "공  제  내  역";
+    dedHdr.font = { bold: true, size: 12 };
+    dedHdr.alignment = { horizontal: "center", vertical: "middle" };
+    dedHdr.fill = sectionFill;
+    dedHdr.border = ALL_BORDERS;
+
+    // 7행 컬럼 헤더
+    const subFill = { type: "pattern" as const, pattern: "solid" as const, fgColor: { argb: "FFE2E8F0" } };
+    const subHdr = (range: string, value: string) => {
+      ws.mergeCells(range);
+      const [start] = range.split(":");
+      const c = ws.getCell(start);
+      c.value = value;
+      c.font = { bold: true };
+      c.alignment = { horizontal: "center", vertical: "middle" };
+      c.fill = subFill;
+      c.border = ALL_BORDERS;
+    };
+    subHdr("B7:G7", "내   역");
+    subHdr("H7:L7", "금   액");
+    subHdr("M7:Q7", "내   역");
+    subHdr("R7:W7", "금   액");
+
+    // 항목 행 헬퍼 (B:G 라벨, H:L 금액, M:Q 라벨, R:W 금액)
+    const writeRow = (row: number, leftLabel: string, leftAmt: number | "", rightLabel: string, rightAmt: number | "") => {
+      ws.mergeCells(row, 2, row, 7);
+      const lL = ws.getCell(row, 2);
+      lL.value = leftLabel;
+      lL.alignment = { horizontal: "center", vertical: "middle" };
+      lL.border = ALL_BORDERS;
+
+      ws.mergeCells(row, 8, row, 12);
+      const lA = ws.getCell(row, 8);
+      lA.value = leftAmt;
+      if (typeof leftAmt === "number") lA.numFmt = NUM;
+      lA.alignment = { horizontal: "right", vertical: "middle" };
+      lA.border = ALL_BORDERS;
+
+      ws.mergeCells(row, 13, row, 17);
+      const rL = ws.getCell(row, 13);
+      rL.value = rightLabel;
+      rL.alignment = { horizontal: "center", vertical: "middle" };
+      rL.border = ALL_BORDERS;
+
+      ws.mergeCells(row, 18, row, 23);
+      const rA = ws.getCell(row, 18);
+      rA.value = rightAmt;
+      if (typeof rightAmt === "number") rA.numFmt = NUM;
+      rA.alignment = { horizontal: "right", vertical: "middle" };
+      rA.border = ALL_BORDERS;
+    };
+
+    if (isBiz) {
+      // 사업소득자
+      writeRow(8,  "계약금액",   pay.basePay,    "소득세",     pay.it);
+      writeRow(9,  "주휴수당",   0,              "지방소득세", pay.lit);
+      writeRow(10, "",           "",             "숙소료",     pay.housing);
+      writeRow(11, "",           "",             "가  불",     pay.advance);
+      writeRow(12, "",           "",             "기  타",     pay.customDed);
+      for (let r = 13; r <= 18; r++) writeRow(r, "", "", "", "");
+
+      // 19행: 안내문 + 공제액계
+      ws.mergeCells("B19:L19");
+      const msg = ws.getCell("B19");
+      msg.value = "상기 금액에는 주휴수당,연차수당 포함";
+      msg.alignment = { horizontal: "center", vertical: "middle" };
+      msg.font = { italic: true, color: { argb: "FF64748B" } };
+      msg.border = ALL_BORDERS;
+
+      ws.mergeCells("M19:Q19");
+      const dl = ws.getCell("M19");
+      dl.value = "공제액계";
+      dl.font = { bold: true };
+      dl.alignment = { horizontal: "center", vertical: "middle" };
+      dl.fill = { type: "pattern", pattern: "solid", fgColor: { argb: "FFE2E8F0" } };
+      dl.border = ALL_BORDERS;
+      ws.mergeCells("R19:W19");
+      const da = ws.getCell("R19");
+      da.value = pay.dedSum;
+      da.numFmt = NUM;
+      da.font = { bold: true };
+      da.alignment = { horizontal: "right", vertical: "middle" };
+      da.border = ALL_BORDERS;
+    } else {
+      // 월급 / 시급 / 일용
+      writeRow(8,  "기본급",         pay.basePay,             "국민연금",     pay.nps);
+      writeRow(9,  "식   대",        pay.allowances.meal,     "건강보험",     pay.hi);
+      writeRow(10, "자운전보조비",   pay.allowances.transport, "장기요양보험", pay.ltc);
+      writeRow(11, "연장수당",       pay.overtimePay,         "고용보험",     pay.ei);
+      writeRow(12, "휴일수당",       pay.holidayPay,          "소 득 세",     pay.it);
+      writeRow(13, "휴일연장수당",   pay.holidayOTPay,        "지방소득세",   pay.lit);
+      writeRow(14, "심야수당",       pay.nightPay,            "숙소료",       pay.housing);
+      writeRow(15, "직책수당",       0,                       "가 불 금",     pay.advance);
+      writeRow(16, "성과금",         0,                       "기  타",       pay.customDed);
+      writeRow(17, "통신비",         pay.allowances.phone,    "",             "");
+      writeRow(18, "기  타",         0,                       "",             "");
+
+      // 19행: 좌측 공백 + 공제액계
+      ws.mergeCells("B19:G19"); ws.getCell("B19").border = ALL_BORDERS;
+      ws.mergeCells("H19:L19"); ws.getCell("H19").border = ALL_BORDERS;
+      ws.mergeCells("M19:Q19");
+      const dl = ws.getCell("M19");
+      dl.value = "공제액계";
+      dl.font = { bold: true };
+      dl.alignment = { horizontal: "center", vertical: "middle" };
+      dl.fill = { type: "pattern", pattern: "solid", fgColor: { argb: "FFE2E8F0" } };
+      dl.border = ALL_BORDERS;
+      ws.mergeCells("R19:W19");
+      const da = ws.getCell("R19");
+      da.value = pay.dedSum;
+      da.numFmt = NUM;
+      da.font = { bold: true };
+      da.alignment = { horizontal: "right", vertical: "middle" };
+      da.border = ALL_BORDERS;
+    }
+
+    // 20행: 지급액계 / 실지급액
+    ws.mergeCells("B20:G20");
+    const gl = ws.getCell("B20");
+    gl.value = "지급액계";
+    gl.font = { bold: true };
+    gl.alignment = { horizontal: "center", vertical: "middle" };
+    gl.fill = { type: "pattern", pattern: "solid", fgColor: { argb: "FFE2E8F0" } };
+    gl.border = ALL_BORDERS;
+    ws.mergeCells("H20:L20");
+    const ga = ws.getCell("H20");
+    ga.value = pay.grossSum;
+    ga.numFmt = NUM;
+    ga.font = { bold: true };
+    ga.alignment = { horizontal: "right", vertical: "middle" };
+    ga.border = ALL_BORDERS;
+    ws.mergeCells("M20:Q20");
+    const nl = ws.getCell("M20");
+    nl.value = "실지급액";
+    nl.font = { bold: true, size: 12 };
+    nl.alignment = { horizontal: "center", vertical: "middle" };
+    nl.fill = { type: "pattern", pattern: "solid", fgColor: { argb: "FFCBD5E1" } };
+    nl.border = ALL_BORDERS;
+    ws.mergeCells("R20:W20");
+    const na = ws.getCell("R20");
+    na.value = pay.netPay;
+    na.numFmt = NUM;
+    na.font = { bold: true, size: 12 };
+    na.alignment = { horizontal: "right", vertical: "middle" };
+    na.border = ALL_BORDERS;
+
+    // 21행: 예금주 / 계좌번호
+    writeLabel("B21:D21", "예 금 주 :", { bold: true });
+    writeLabel("E21:I21", w.bankSettings?.holder || w.name || "");
+    writeLabel("J21:M21", "계좌번호 :", { bold: true });
+    const acct = `${w.bankSettings?.bankName || ""} ${w.bankSettings?.accountNo || ""}`.trim();
+    writeLabel("N21:W21", acct);
+
+    // 22행: 감사 문구
+    ws.mergeCells("B22:W22");
+    const thanks = ws.getCell("B22");
+    thanks.value = "귀하의 노고에 감사드립니다.";
+    thanks.font = { italic: true, size: 11 };
+    thanks.alignment = { horizontal: "center", vertical: "middle" };
+
+    // 23행: 회사명
+    ws.mergeCells("B23:W23");
+    const comp = ws.getCell("B23");
+    comp.value = companyName;
+    comp.font = { bold: true, size: 12 };
+    comp.alignment = { horizontal: "center", vertical: "middle" };
+  });
+
+  // 근로자가 없는 경우 빈 시트 1개라도 추가 (ExcelJS는 시트 0개 저장 불가)
+  if (wb.worksheets.length === 0) {
+    const ws = wb.addWorksheet("급여명세서");
+    ws.getCell("A1").value = "대상 근로자가 없습니다.";
+  }
+
+  const buf = await wb.xlsx.writeBuffer();
+  saveAs(
+    new Blob([buf], { type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" }),
+    `${ctx.year}년${ctx.month}월_급여명세서.xlsx`
+  );
+}
+
+// ============================================================
+// 3) 출퇴근명부 (4시트) — 2605-외국인근로자 출퇴근명부.xlsx 양식
 // ============================================================
 
 export async function exportAttendanceBook(ctx: ExportContext): Promise<void> {
@@ -607,22 +986,8 @@ export async function exportAttendanceBook(ctx: ExportContext): Promise<void> {
   wsSet.getColumn(1).width = 20;
   for (let i = 0; i < ctx.workers.length; i++) wsSet.getColumn(2 + i).width = 16;
 
-  // ── Sheet 2: 2.공휴일리스트 ──
-  const wsHol = wb.addWorksheet("2.공휴일리스트");
-  setHeader(wsHol.getCell(1, 1)); wsHol.getCell(1, 1).value = "날짜";
-  setHeader(wsHol.getCell(1, 2)); wsHol.getCell(1, 2).value = "공휴일명";
-  const sortedHolidays = [...ctx.holidays].sort((a, b) => a.date.localeCompare(b.date));
-  sortedHolidays.forEach((h, i) => {
-    const r = wsHol.getRow(2 + i);
-    setCell(r.getCell(1), new Date(h.date), { align: "center" });
-    r.getCell(1).numFmt = "yyyy-mm-dd";
-    setCell(r.getCell(2), h.name, { align: "left" });
-  });
-  wsHol.getColumn(1).width = 14;
-  wsHol.getColumn(2).width = 18;
-
-  // ── Sheet 3: 3.출퇴근기록부(통합) ──
-  const wsAtt = wb.addWorksheet("3.출퇴근기록부(통합)", {
+  // ── Sheet 2: 출퇴근기록부(통합) ──
+  const wsAtt = wb.addWorksheet("2.출퇴근기록부(통합)", {
     views: [{ state: "frozen", xSplit: 3, ySplit: 3 }],
   });
   const dim = daysInMonth(ctx.year, ctx.month);
@@ -674,7 +1039,8 @@ export async function exportAttendanceBook(ctx: ExportContext): Promise<void> {
     const isH = isHolidayDate(date, ctx.holidays);
 
     const dc = wsAtt.getCell(row, 1);
-    setCell(dc, date, { align: "center" });
+    // UTC 자정으로 저장해 KST 환경에서 하루 밀림 방지
+    setCell(dc, excelDateUTC(ctx.year, ctx.month, d), { align: "center" });
     dc.numFmt = "m/d";
     setCell(wsAtt.getCell(row, 2), dow);
     setCell(wsAtt.getCell(row, 3), isH ? "휴일" : "평일");
@@ -733,83 +1099,6 @@ export async function exportAttendanceBook(ctx: ExportContext): Promise<void> {
     wsAtt.getColumn(sc + 4).width = 6;  // 휴일
     wsAtt.getColumn(sc + 5).width = 7;  // 휴일연장
     wsAtt.getColumn(sc + 6).width = 6;  // 심야
-  }
-
-  // ── Sheet 4: 4.급여명세서 — 첫 근로자 기준 1장 ──
-  const wsPay = wb.addWorksheet("4.급여명세서");
-  const first = ctx.workers[0];
-  const firstAgg = agg[0];
-  if (first && firstAgg) {
-    wsPay.mergeCells(1, 2, 1, 19);
-    const title = wsPay.getCell(1, 2);
-    title.value = `${ctx.year}년 ${ctx.month}월 급여명세서`;
-    title.font = { bold: true, size: 14 };
-    title.alignment = { horizontal: "center", vertical: "middle" };
-
-    const allowances = getWorkerAllowances(first, ctx.settings);
-    const hr = first.salarySettings.hourlyRate;
-    const basePay = Math.floor(firstAgg.totalBase * hr);
-    const otPay = Math.floor(firstAgg.totalOvertime * hr * ctx.settings.overtimeRules.weekdayOvertimeRate);
-    const holPay = Math.floor(firstAgg.totalHoliday * hr * ctx.settings.overtimeRules.holidayRate);
-    const holOTPay = Math.floor(firstAgg.totalHolidayOvertime * hr * ctx.settings.overtimeRules.holidayOvertimeRate);
-    const nightPay = Math.floor(firstAgg.totalNight * hr * ctx.settings.overtimeRules.nightRate);
-    const taxable = basePay + otPay + holPay + holOTPay + nightPay;
-    const nps = Math.floor(taxable * ctx.settings.insuranceRates.nationalPensionRate);
-    const hi = Math.floor(taxable * ctx.settings.insuranceRates.healthInsuranceRate);
-    const ltc = Math.floor(hi * ctx.settings.insuranceRates.longTermCareRate);
-    const ei = Math.floor(taxable * ctx.settings.insuranceRates.employmentInsuranceRate);
-    const housing = first.deductionSettings.housingFee || 0;
-    const advance = first.deductionSettings.cashAdvance || 0;
-    const grossSum = taxable + allowances.meal + allowances.transport + allowances.phone;
-    const dedSum = nps + hi + ltc + ei + housing + advance;
-    const net = Math.max(0, grossSum - dedSum);
-
-    const NUM = "#,##0";
-    const writeLR = (row: number, label: string, amt: number, rLabel: string, rAmt: number | "") => {
-      setCell(wsPay.getCell(row, 2), label, { align: "left" });
-      setCell(wsPay.getCell(row, 8), amt, { numFmt: NUM, align: "right" });
-      setCell(wsPay.getCell(row, 12), rLabel, { align: "left" });
-      setCell(wsPay.getCell(row, 18), rAmt as any, { numFmt: NUM, align: "right" });
-    };
-
-    setCell(wsPay.getCell(2, 2), `사원코드 : ${first.workerId}`, { align: "left" });
-    setCell(wsPay.getCell(2, 7), `이름 : ${first.name}`, { align: "left" });
-    setCell(wsPay.getCell(2, 12), `입사일 : ${first.joinDate}`, { align: "left" });
-    setCell(wsPay.getCell(3, 2), `부서 : ${first.department}`, { align: "left" });
-    setCell(wsPay.getCell(3, 7), `직급 : ${first.duty}`, { align: "left" });
-    setCell(wsPay.getCell(3, 12), `지급일 : ${ctx.year}년 ${ctx.month + 1 > 12 ? 1 : ctx.month + 1}월 ${ctx.settings.site.paymentDay}일`, { align: "left" });
-
-    setCell(wsPay.getCell(5, 2), "지 급 내 역", { bold: true });
-    setCell(wsPay.getCell(5, 12), "공 제 내 역", { bold: true });
-
-    writeLR(6, "기본급", basePay, "국민연금", nps);
-    writeLR(7, "연장수당", otPay, "건강보험", hi);
-    writeLR(8, "휴일수당", holPay, "장기요양", ltc);
-    writeLR(9, "휴일연장수당", holOTPay, "고용보험", ei);
-    writeLR(10, "심야수당", nightPay, "소득세", 0);
-    writeLR(11, "성과금", 0, "지방소득세", 0);
-    writeLR(12, "식대", allowances.meal, "숙소료", housing);
-    writeLR(13, "자가운전보조비", allowances.transport, "가불금", advance);
-
-    setCell(wsPay.getCell(15, 2), "지급액 계", { bold: true, align: "left" });
-    setCell(wsPay.getCell(15, 8), grossSum, { numFmt: NUM, bold: true, align: "right" });
-    setCell(wsPay.getCell(15, 12), "공제액 계", { bold: true, align: "left" });
-    setCell(wsPay.getCell(15, 18), dedSum, { numFmt: NUM, bold: true, align: "right" });
-
-    setCell(wsPay.getCell(17, 12), "실 지 급 액", { bold: true, align: "left" });
-    setCell(wsPay.getCell(17, 18), net, { numFmt: NUM, bold: true, align: "right" });
-
-    setCell(wsPay.getCell(19, 2), `예금주: ${first.bankSettings?.holder || ""}`, { align: "left" });
-    setCell(wsPay.getCell(19, 8), `계좌번호: ${first.bankSettings?.accountNo || ""}`, { align: "left" });
-
-    wsPay.mergeCells(21, 2, 21, 19);
-    const thanks = wsPay.getCell(21, 2);
-    thanks.value = "귀하의 노고에 감사드립니다.";
-    thanks.alignment = { horizontal: "center" };
-    thanks.font = { italic: true };
-
-    wsPay.getColumn(2).width = 14;
-    for (let i = 3; i <= 19; i++) wsPay.getColumn(i).width = 10;
   }
 
   const buf = await wb.xlsx.writeBuffer();

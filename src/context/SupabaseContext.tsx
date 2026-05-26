@@ -133,6 +133,7 @@ interface AppContextType {
 
   // 근태 조회
   fetchAttendance: (q: AttendanceQuery) => Promise<AttendanceRecord[]>;
+  upsertAttendanceByAdmin: (input: AdminAttendanceInput) => Promise<void>;
 }
 
 export interface WorkerCredentials {
@@ -164,6 +165,15 @@ export interface AttendanceQuery {
   fromDate: string;        // YYYY-MM-DD
   toDate: string;          // YYYY-MM-DD
   workerId?: string;       // workers.id (없으면 전체)
+}
+
+export interface AdminAttendanceInput {
+  workerId: string;
+  workDate: string;        // YYYY-MM-DD
+  checkInAt: string | null;
+  checkOutAt: string | null;
+  status?: "normal" | "late" | "early_leave" | "absent" | "holiday_work";
+  note?: string | null;
 }
 
 const AppContext = createContext<AppContextType | undefined>(undefined);
@@ -512,6 +522,41 @@ export const SupabaseProvider: React.FC<{ children: React.ReactNode }> = ({ chil
     });
   };
 
+  const upsertAttendanceByAdmin = async (input: AdminAttendanceInput) => {
+    if (!user) throw new Error("로그인이 필요합니다.");
+
+    const { data: existing, error: fetchError } = await supabase
+      .from("attendance")
+      .select("id, check_in_at, check_out_at, status, note")
+      .eq("worker_id", input.workerId)
+      .eq("work_date", input.workDate)
+      .maybeSingle();
+    if (fetchError) throw new Error(translateRpcError(fetchError.message));
+
+    const payload = {
+      worker_id: input.workerId,
+      work_date: input.workDate,
+      check_in_at: input.checkInAt,
+      check_out_at: input.checkOutAt,
+      status: input.status || (input.checkInAt ? "normal" : "absent"),
+      note: input.note ?? "관리자 수동 입력",
+    };
+
+    const { error } = await supabase
+      .from("attendance")
+      .upsert(payload, { onConflict: "worker_id,work_date" });
+    if (error) throw new Error(translateRpcError(error.message));
+
+    await logHistory({
+      category: "attendance",
+      action: existing ? "update" : "create",
+      label: `관리자 출퇴근 ${existing ? "수정" : "등록"}: ${input.workDate}`,
+      fromValue: existing || {},
+      toValue: payload,
+    });
+    await loadHistory();
+  };
+
   // ─── Holidays ──────────────────────────────────────────
   const addHoliday = async (holiday: Omit<Holiday, "id">) => {
     if (!user) return;
@@ -570,6 +615,7 @@ export const SupabaseProvider: React.FC<{ children: React.ReactNode }> = ({ chil
         submitAttendance,
         refreshTodayAttendance,
         fetchAttendance,
+        upsertAttendanceByAdmin,
       }}
     >
       {children}
