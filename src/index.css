@@ -6,3 +6,12 @@
   --font-mono: "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
 }
 
+.qr-scanner-shell video {
+  width: 100% !important;
+  height: 100% !important;
+  object-fit: cover;
+}
+
+.qr-scanner-shell #qr-shaded-region {
+  display: none !important;
+}

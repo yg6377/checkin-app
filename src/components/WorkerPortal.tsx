@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useId, useRef, useState } from "react";
-import { useApp } from "../context/SupabaseContext";
+import { AttendanceRecord, useApp } from "../context/SupabaseContext";
 import type { Html5Qrcode } from "html5-qrcode";
 import {
   HardHat,
@@ -11,6 +11,7 @@ import {
   AlertCircle,
   X,
   Camera,
+  CalendarDays,
 } from "lucide-react";
 
 // ============================================================
@@ -25,6 +26,24 @@ function fmtTime(iso: string | null): string {
 function fmtDateKo(date: Date): string {
   const w = ["일", "월", "화", "수", "목", "금", "토"][date.getDay()];
   return `${date.getFullYear()}년 ${date.getMonth() + 1}월 ${date.getDate()}일 (${w})`;
+}
+
+function ymd(d: Date): string {
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+}
+
+function fmtWorkDate(dateStr: string): string {
+  const [year, month, day] = dateStr.split("-").map(Number);
+  const date = new Date(year, (month || 1) - 1, day || 1);
+  const w = ["일", "월", "화", "수", "목", "금", "토"][date.getDay()];
+  return `${year}.${String(month).padStart(2, "0")}.${String(day).padStart(2, "0")} (${w})`;
+}
+
+function fmtHours(hours: number): string {
+  if (hours <= 0) return "-";
+  const wholeHours = Math.floor(hours);
+  const minutes = Math.round((hours - wholeHours) * 60);
+  return `${wholeHours}시간 ${minutes}분`;
 }
 
 // ============================================================
@@ -57,6 +76,7 @@ const ScannerModal: React.FC<{
         const { Html5Qrcode } = await import("html5-qrcode");
         if (cancelled || !containerRef.current) return;
 
+        containerRef.current.innerHTML = "";
         const scanner = new Html5Qrcode(scannerElementId, { verbose: false });
         scannerRef.current = scanner;
         setStatus("scanning");
@@ -136,7 +156,7 @@ const ScannerModal: React.FC<{
             <div
               id={scannerElementId}
               ref={containerRef}
-              className="absolute inset-0"
+              className="qr-scanner-shell absolute inset-0"
             />
             <div className="pointer-events-none absolute inset-0 flex items-center justify-center">
               <div className="h-60 w-60 max-h-[70%] max-w-[70%] rounded-[2rem] border-4 border-white/85 shadow-[0_0_0_9999px_rgba(15,23,42,0.28)]" />
@@ -174,10 +194,14 @@ const ScannerModal: React.FC<{
 // 근로자 메인 화면
 // ============================================================
 export const WorkerPortal: React.FC = () => {
-  const { user, logout, workers, todayAttendance, submitAttendance, refreshTodayAttendance } = useApp();
+  const { user, logout, workers, todayAttendance, submitAttendance, refreshTodayAttendance, fetchAttendance } = useApp();
   const [scannerAction, setScannerAction] = useState<"in" | "out" | null>(null);
   const [now, setNow] = useState(new Date());
   const [toast, setToast] = useState<string>("");
+  const [historyOpen, setHistoryOpen] = useState(false);
+  const [recordsLoading, setRecordsLoading] = useState(false);
+  const [recordsError, setRecordsError] = useState("");
+  const [attendanceHistory, setAttendanceHistory] = useState<AttendanceRecord[]>([]);
 
   // 본인 worker 정보 (workers 배열에서 본인만 RLS 로 보임)
   const me = workers[0];
@@ -193,19 +217,51 @@ export const WorkerPortal: React.FC = () => {
     refreshTodayAttendance();
   }, [refreshTodayAttendance]);
 
+  const loadAttendanceHistory = useCallback(async () => {
+    if (!me?.id) {
+      setAttendanceHistory([]);
+      return;
+    }
+
+    setRecordsLoading(true);
+    setRecordsError("");
+    try {
+      const records = await fetchAttendance({
+        fromDate: me.joinDate || "2000-01-01",
+        toDate: ymd(new Date()),
+        workerId: me.id,
+      });
+      setAttendanceHistory(records);
+    } catch (e: any) {
+      setRecordsError(e?.message || "출퇴근 이력을 불러오지 못했습니다.");
+      setAttendanceHistory([]);
+    } finally {
+      setRecordsLoading(false);
+    }
+  }, [fetchAttendance, me?.id, me?.joinDate]);
+
+  useEffect(() => {
+    loadAttendanceHistory();
+  }, [loadAttendanceHistory]);
+
   const checkedIn = !!todayAttendance?.checkInAt;
   const checkedOut = !!todayAttendance?.checkOutAt;
 
   const handleScan = useCallback(async (code: string) => {
     if (!scannerAction) return;
     await submitAttendance(code, scannerAction);
+    await loadAttendanceHistory();
     setToast(scannerAction === "in" ? "출근이 등록되었습니다." : "퇴근이 등록되었습니다.");
     setTimeout(() => setToast(""), 2500);
-  }, [scannerAction, submitAttendance]);
+  }, [scannerAction, submitAttendance, loadAttendanceHistory]);
 
   const handleCloseScanner = useCallback(() => {
     setScannerAction(null);
   }, []);
+
+  const totalWorkDays = attendanceHistory.filter((r) => r.checkInAt).length;
+  const totalWorkHours = attendanceHistory.reduce((sum, r) => sum + r.workHours, 0);
+  const missingCheckoutCount = attendanceHistory.filter((r) => r.checkInAt && !r.checkOutAt).length;
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-slate-50 to-stone-100 font-sans flex flex-col">
@@ -220,13 +276,22 @@ export const WorkerPortal: React.FC = () => {
               <p className="text-sm font-bold text-slate-900">{me?.name || user?.email}</p>
             </div>
           </div>
-          <button
-            onClick={logout}
-            className="text-[11px] text-slate-500 hover:text-rose-600 flex items-center gap-1 font-semibold"
-          >
-            <LogOut className="w-3 h-3" />
-            로그아웃
-          </button>
+          <div className="flex items-center gap-2">
+            <button
+              onClick={() => setHistoryOpen(true)}
+              className="text-[11px] text-slate-500 hover:text-slate-900 flex items-center gap-1 font-semibold"
+            >
+              <CalendarDays className="w-3.5 h-3.5" />
+              출퇴근 이력
+            </button>
+            <button
+              onClick={logout}
+              className="text-[11px] text-slate-500 hover:text-rose-600 flex items-center gap-1 font-semibold"
+            >
+              <LogOut className="w-3 h-3" />
+              로그아웃
+            </button>
+          </div>
         </div>
       </header>
 
@@ -296,6 +361,7 @@ export const WorkerPortal: React.FC = () => {
         <p className="text-[11px] text-center text-slate-400 leading-relaxed">
           현장 입구에 부착된 QR 코드를<br />출근 시·퇴근 시 한 번씩 스캔해주세요.
         </p>
+
       </main>
 
       {toast && (
@@ -313,6 +379,95 @@ export const WorkerPortal: React.FC = () => {
           onScan={handleScan}
           onClose={handleCloseScanner}
         />
+      )}
+
+      {historyOpen && (
+        <div className="fixed inset-0 z-50 bg-black/60 flex items-end justify-center">
+          <div className="bg-white w-full max-w-md max-h-[85vh] rounded-t-3xl shadow-2xl overflow-hidden flex flex-col">
+            <div className="px-5 py-4 border-b border-slate-200 flex items-center justify-between">
+              <div>
+                <h3 className="text-base font-extrabold text-slate-900">출퇴근 이력</h3>
+                <p className="text-[11px] text-slate-400 mt-0.5">입사일 기준 전체 기록</p>
+              </div>
+              <div className="flex items-center gap-2">
+                <button
+                  onClick={loadAttendanceHistory}
+                  className="text-[11px] font-semibold text-slate-500 hover:text-slate-900"
+                >
+                  새로고침
+                </button>
+                <button onClick={() => setHistoryOpen(false)} className="p-1.5 rounded-full hover:bg-slate-100">
+                  <X className="w-5 h-5 text-slate-500" />
+                </button>
+              </div>
+            </div>
+
+            <div className="p-4 overflow-y-auto space-y-4">
+              <div className="grid grid-cols-3 gap-2">
+                <div className="rounded-xl border border-slate-200 bg-slate-50 p-3">
+                  <p className="text-[10px] font-bold text-slate-500 uppercase">출근 일수</p>
+                  <p className="mt-1 text-lg font-black text-slate-900">{totalWorkDays}일</p>
+                </div>
+                <div className="rounded-xl border border-slate-200 bg-slate-50 p-3">
+                  <p className="text-[10px] font-bold text-slate-500 uppercase">누적 근무</p>
+                  <p className="mt-1 text-lg font-black text-slate-900">{fmtHours(totalWorkHours)}</p>
+                </div>
+                <div className="rounded-xl border border-slate-200 bg-slate-50 p-3">
+                  <p className="text-[10px] font-bold text-slate-500 uppercase">미퇴근</p>
+                  <p className={`mt-1 text-lg font-black ${missingCheckoutCount > 0 ? "text-rose-600" : "text-slate-900"}`}>
+                    {missingCheckoutCount}건
+                  </p>
+                </div>
+              </div>
+
+              {recordsLoading && (
+                <div className="rounded-xl border border-slate-200 bg-slate-50 px-4 py-6 text-center text-sm text-slate-500">
+                  출퇴근 이력을 불러오는 중입니다...
+                </div>
+              )}
+
+              {!recordsLoading && recordsError && (
+                <div className="flex items-start gap-2 p-3 bg-rose-50 border border-rose-200 rounded-xl text-rose-700">
+                  <AlertCircle className="w-4 h-4 shrink-0 mt-0.5" />
+                  <p className="text-[11px] leading-relaxed">{recordsError}</p>
+                </div>
+              )}
+
+              {!recordsLoading && !recordsError && attendanceHistory.length === 0 && (
+                <div className="rounded-xl border border-dashed border-slate-300 bg-slate-50 px-4 py-6 text-center text-sm text-slate-500">
+                  아직 등록된 출퇴근 기록이 없습니다.
+                </div>
+              )}
+
+              {!recordsLoading && !recordsError && attendanceHistory.length > 0 && (
+                <div className="space-y-2">
+                  {attendanceHistory.map((record) => {
+                    const incomplete = record.checkInAt && !record.checkOutAt;
+                    return (
+                      <div
+                        key={record.id}
+                        className="rounded-xl border border-slate-200 bg-white px-4 py-3 flex items-center justify-between gap-3"
+                      >
+                        <div className="min-w-0">
+                          <p className="text-sm font-bold text-slate-900">{fmtWorkDate(record.workDate)}</p>
+                          <div className="mt-1 flex items-center gap-3 text-[11px] text-slate-500 font-mono">
+                            <span>출근 {fmtTime(record.checkInAt)}</span>
+                            <span>퇴근 {fmtTime(record.checkOutAt)}</span>
+                          </div>
+                        </div>
+                        <div className="text-right shrink-0">
+                          <p className={`text-xs font-bold ${incomplete ? "text-rose-600" : "text-slate-700"}`}>
+                            {incomplete ? "퇴근 미등록" : fmtHours(record.workHours)}
+                          </p>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
       )}
     </div>
   );
