@@ -1,6 +1,7 @@
 import React, { useCallback, useEffect, useId, useRef, useState } from "react";
 import { AttendanceRecord, useApp } from "../context/SupabaseContext";
 import type { Html5Qrcode } from "html5-qrcode";
+import { languageOptions, languageToLocale, useLanguage } from "../i18n";
 import {
   HardHat,
   LogIn,
@@ -24,27 +25,32 @@ function fmtTime(iso: string | null): string {
   return `${String(d.getHours()).padStart(2, "0")}:${String(d.getMinutes()).padStart(2, "0")}`;
 }
 
-function fmtDateKo(date: Date): string {
-  const w = ["일", "월", "화", "수", "목", "금", "토"][date.getDay()];
-  return `${date.getFullYear()}년 ${date.getMonth() + 1}월 ${date.getDate()}일 (${w})`;
+function fmtDateLabel(date: Date, locale: string): string {
+  return new Intl.DateTimeFormat(locale, {
+    year: "numeric",
+    month: "long",
+    day: "numeric",
+    weekday: "short",
+  }).format(date);
 }
 
 function ymd(d: Date): string {
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
 }
 
-function fmtWorkDate(dateStr: string): string {
+function fmtWorkDate(dateStr: string, locale: string): string {
   const [year, month, day] = dateStr.split("-").map(Number);
   const date = new Date(year, (month || 1) - 1, day || 1);
-  const w = ["일", "월", "화", "수", "목", "금", "토"][date.getDay()];
-  return `${year}.${String(month).padStart(2, "0")}.${String(day).padStart(2, "0")} (${w})`;
+  const formattedDate = `${year}.${String(month).padStart(2, "0")}.${String(day).padStart(2, "0")}`;
+  const weekday = new Intl.DateTimeFormat(locale, { weekday: "short" }).format(date);
+  return `${formattedDate} (${weekday})`;
 }
 
 function fmtHours(hours: number): string {
   if (hours <= 0) return "-";
   const wholeHours = Math.floor(hours);
   const minutes = Math.round((hours - wholeHours) * 60);
-  return `${wholeHours}시간 ${minutes}분`;
+  return `${wholeHours}:${String(minutes).padStart(2, "0")}`;
 }
 
 // ============================================================
@@ -55,10 +61,12 @@ const ScannerModal: React.FC<{
   onScan: (code: string) => Promise<void>;
   onClose: () => void;
 }> = ({ action, onScan, onClose }) => {
+  const { t } = useLanguage();
   const containerRef = useRef<HTMLDivElement>(null);
   const scannerRef = useRef<Html5Qrcode | null>(null);
   const onScanRef = useRef(onScan);
   const onCloseRef = useRef(onClose);
+  const closingRef = useRef(false);
   const scannerElementId = useId().replace(/:/g, "-");
   const [status, setStatus] = useState<"idle" | "scanning" | "processing" | "error">("idle");
   const [error, setError] = useState<string>("");
@@ -67,6 +75,28 @@ const ScannerModal: React.FC<{
     onScanRef.current = onScan;
     onCloseRef.current = onClose;
   }, [onScan, onClose]);
+
+  const stopScannerSafely = useCallback(async () => {
+    const scanner = scannerRef.current;
+    scannerRef.current = null;
+    if (!scanner) return;
+
+    try {
+      await scanner.stop();
+    } catch {
+      // ignore stop errors during close race
+    }
+
+    try {
+      scanner.clear();
+    } catch {
+      // ignore clear errors when DOM is already gone
+    }
+
+    if (containerRef.current) {
+      containerRef.current.innerHTML = "";
+    }
+  }, []);
 
   useEffect(() => {
     let cancelled = false;
@@ -86,19 +116,17 @@ const ScannerModal: React.FC<{
           { facingMode: "environment" },
           { fps: 10, qrbox: { width: 240, height: 240 } },
           async (decodedText) => {
-            if (cancelled) return;
+            if (cancelled || closingRef.current) return;
+            closingRef.current = true;
             setStatus("processing");
-            try {
-              await scanner.stop();
-            } catch {
-              // ignore stop errors
-            }
+            await stopScannerSafely();
             try {
               await onScanRef.current(decodedText);
             } catch (e: any) {
+              closingRef.current = false;
               if (!cancelled) {
                 setStatus("error");
-                setError(e?.message || "처리 중 오류가 발생했습니다.");
+                setError(e?.message || t("processError"));
               }
             }
           },
@@ -108,13 +136,12 @@ const ScannerModal: React.FC<{
         );
 
         if (cancelled) {
-          await scanner.stop().catch(() => {});
-          scanner.clear();
+          await stopScannerSafely();
         }
       } catch (e: any) {
         if (cancelled) return;
         setStatus("error");
-        setError(e?.message || "카메라를 시작할 수 없습니다. 권한 설정을 확인하세요.");
+        setError(e?.message || t("cameraStartError"));
       }
     }
 
@@ -122,16 +149,17 @@ const ScannerModal: React.FC<{
 
     return () => {
       cancelled = true;
-      const s = scannerRef.current;
-      if (s) {
-        s.stop()
-          .catch(() => {})
-          .finally(() => {
-            s.clear();
-          });
-      }
+      void stopScannerSafely();
     };
-  }, [scannerElementId]);
+  }, [scannerElementId, stopScannerSafely, t]);
+
+  const handleCloseClick = useCallback(async () => {
+    if (closingRef.current) return;
+    closingRef.current = true;
+    setStatus("processing");
+    await stopScannerSafely();
+    onCloseRef.current();
+  }, [stopScannerSafely]);
 
   const isIn = action === "in";
 
@@ -142,11 +170,11 @@ const ScannerModal: React.FC<{
           <div>
             <h3 className="text-base font-extrabold flex items-center gap-2">
               {isIn ? <LogIn className="w-5 h-5" /> : <LogOut className="w-5 h-5" />}
-              {isIn ? "출근 QR 스캔" : "퇴근 QR 스캔"}
+              {isIn ? t("qrCheckInTitle") : t("qrCheckOutTitle")}
             </h3>
-            <p className="text-[11px] opacity-90 mt-0.5">현장 입구의 QR 코드를 카메라에 비춰주세요.</p>
+            <p className="text-[11px] opacity-90 mt-0.5">{t("qrGuide")}</p>
           </div>
-          <button onClick={onClose} className="p-1.5 rounded-full hover:bg-white/20">
+          <button onClick={() => void handleCloseClick()} className="p-1.5 rounded-full hover:bg-white/20">
             <X className="w-5 h-5" />
           </button>
         </div>
@@ -168,13 +196,13 @@ const ScannerModal: React.FC<{
           {status === "scanning" && (
             <p className="flex items-center gap-2 text-slate-600">
               <Camera className="w-4 h-4 animate-pulse text-emerald-500" />
-              QR 인식 대기 중...
+              {t("waitingQr")}
             </p>
           )}
           {status === "processing" && (
             <p className="flex items-center gap-2 text-slate-600">
               <Clock className="w-4 h-4 animate-spin" />
-              처리 중...
+              {t("processing")}
             </p>
           )}
           {status === "error" && (
@@ -183,7 +211,53 @@ const ScannerModal: React.FC<{
               <span className="text-[11px]">{error}</span>
             </div>
           )}
-          {status === "idle" && <p className="text-slate-500">카메라 권한을 확인하고 있습니다...</p>}
+          {status === "idle" && <p className="text-slate-500">{t("cameraChecking")}</p>}
+        </div>
+      </div>
+    </div>
+  );
+};
+
+const AttendanceResultModal: React.FC<{
+  action: "in" | "out";
+  onConfirm: () => void;
+}> = ({ action, onConfirm }) => {
+  const { t } = useLanguage();
+  const isCheckIn = action === "in";
+
+  return (
+    <div className="fixed inset-0 z-50 bg-black/70 flex items-center justify-center p-4">
+      <div className="bg-white rounded-3xl max-w-sm w-full overflow-hidden shadow-2xl">
+        <div className={`px-5 py-4 ${isCheckIn ? "bg-emerald-600" : "bg-rose-600"} text-white`}>
+          <h3 className="text-base font-extrabold flex items-center gap-2">
+            <CheckCircle2 className="w-5 h-5" />
+            {t("processingDone")}
+          </h3>
+        </div>
+
+        <div className="px-6 py-8 text-center">
+          <div className={`mx-auto mb-4 flex h-16 w-16 items-center justify-center rounded-full ${isCheckIn ? "bg-emerald-50" : "bg-rose-50"}`}>
+            {isCheckIn ? (
+              <LogIn className={`w-8 h-8 ${isCheckIn ? "text-emerald-600" : "text-rose-600"}`} />
+            ) : (
+              <LogOut className="w-8 h-8 text-rose-600" />
+            )}
+          </div>
+          <p className="text-lg font-black text-slate-900">
+            {isCheckIn ? t("checkInComplete") : t("checkOutComplete")}
+          </p>
+          <p className="mt-2 text-sm text-slate-500">
+            {t("confirmReturn")}
+          </p>
+        </div>
+
+        <div className="px-5 pb-5">
+          <button
+            onClick={onConfirm}
+            className={`w-full rounded-2xl py-3 text-sm font-bold text-white shadow-lg transition active:scale-[0.99] ${isCheckIn ? "bg-emerald-600 hover:bg-emerald-700" : "bg-rose-600 hover:bg-rose-700"}`}
+          >
+            {t("confirm")}
+          </button>
         </div>
       </div>
     </div>
@@ -195,16 +269,24 @@ const ScannerModal: React.FC<{
 // ============================================================
 export const WorkerPortal: React.FC = () => {
   const { user, logout, workers, todayAttendance, submitAttendance, refreshTodayAttendance, fetchAttendance } = useApp();
+  const { language, setLanguage, t } = useLanguage();
   const [scannerAction, setScannerAction] = useState<"in" | "out" | null>(null);
   const [now, setNow] = useState(new Date());
-  const [toast, setToast] = useState<string>("");
   const [activeView, setActiveView] = useState<"home" | "history">("home");
   const [recordsLoading, setRecordsLoading] = useState(false);
   const [recordsError, setRecordsError] = useState("");
   const [attendanceHistory, setAttendanceHistory] = useState<AttendanceRecord[]>([]);
+  const [resultAction, setResultAction] = useState<"in" | "out" | null>(null);
 
   // 본인 worker 정보 (workers 배열에서 본인만 RLS 로 보임)
   const me = workers[0];
+  const locale = languageToLocale[language];
+  const formatHourSummary = useCallback((hours: number) => {
+    if (hours <= 0) return "-";
+    const wholeHours = Math.floor(hours);
+    const minutes = Math.round((hours - wholeHours) * 60);
+    return `${wholeHours} ${t("hourUnit")} ${minutes} ${t("minuteUnit")}`;
+  }, [t]);
 
   // 1초마다 현재 시각 갱신
   useEffect(() => {
@@ -233,12 +315,12 @@ export const WorkerPortal: React.FC = () => {
       });
       setAttendanceHistory(records);
     } catch (e: any) {
-      setRecordsError(e?.message || "출퇴근 이력을 불러오지 못했습니다.");
+      setRecordsError(e?.message || t("historyLoadError"));
       setAttendanceHistory([]);
     } finally {
       setRecordsLoading(false);
     }
-  }, [fetchAttendance, me?.id, me?.joinDate]);
+  }, [fetchAttendance, me?.id, me?.joinDate, t]);
 
   useEffect(() => {
     loadAttendanceHistory();
@@ -249,11 +331,11 @@ export const WorkerPortal: React.FC = () => {
 
   const handleScan = useCallback(async (code: string) => {
     if (!scannerAction) return;
+    const action = scannerAction;
     setScannerAction(null);
-    await submitAttendance(code, scannerAction);
+    await submitAttendance(code, action);
     await loadAttendanceHistory();
-    setToast("출근 또는 퇴근 처리가 되었습니다.");
-    setTimeout(() => setToast(""), 2500);
+    setResultAction(action);
   }, [scannerAction, submitAttendance, loadAttendanceHistory]);
 
   const handleCloseScanner = useCallback(() => {
@@ -274,21 +356,32 @@ export const WorkerPortal: React.FC = () => {
             </div>
             <div>
               <p className="text-[10px] font-mono text-slate-400">
-                {activeView === "home" ? "근로자 모드" : "출퇴근 이력"}
+                {activeView === "home" ? t("workerMode") : t("attendanceHistory")}
               </p>
               <p className="text-sm font-bold text-slate-900">
-                {activeView === "home" ? me?.name || user?.email : "내 출퇴근 기록"}
+                {activeView === "home" ? me?.name || user?.email : t("myAttendanceRecords")}
               </p>
             </div>
           </div>
           <div className="flex items-center gap-2">
+            <select
+              value={language}
+              onChange={(e) => setLanguage(e.target.value as typeof language)}
+              className="rounded-lg border border-slate-200 bg-white px-2.5 py-1.5 text-[11px] font-semibold text-slate-500 focus:outline-none focus:border-slate-400"
+            >
+              {languageOptions.map((option) => (
+                <option key={option.value} value={option.value}>
+                  {option.label}
+                </option>
+              ))}
+            </select>
             {activeView === "history" && (
               <button
                 onClick={() => setActiveView("home")}
                 className="text-[11px] text-slate-500 hover:text-slate-900 flex items-center gap-1 font-semibold"
               >
                 <ChevronLeft className="w-3.5 h-3.5" />
-                돌아가기
+                {t("back")}
               </button>
             )}
             <button
@@ -296,7 +389,7 @@ export const WorkerPortal: React.FC = () => {
               className="text-[11px] text-slate-500 hover:text-rose-600 flex items-center gap-1 font-semibold"
             >
               <LogOut className="w-3 h-3" />
-              로그아웃
+              {t("logout")}
             </button>
           </div>
         </div>
@@ -306,7 +399,7 @@ export const WorkerPortal: React.FC = () => {
         {activeView === "home" ? (
           <>
             <div className="bg-white rounded-2xl border border-slate-200 shadow-sm p-5 text-center">
-              <p className="text-xs text-slate-500 font-mono">{fmtDateKo(now)}</p>
+              <p className="text-xs text-slate-500 font-mono">{fmtDateLabel(now, locale)}</p>
               <p className="text-5xl font-black tracking-tight text-slate-900 font-mono mt-1">
                 {String(now.getHours()).padStart(2, "0")}:{String(now.getMinutes()).padStart(2, "0")}
                 <span className="text-xl text-slate-400">:{String(now.getSeconds()).padStart(2, "0")}</span>
@@ -314,13 +407,13 @@ export const WorkerPortal: React.FC = () => {
             </div>
 
             <div className="bg-white rounded-2xl border border-slate-200 shadow-sm p-5 space-y-3">
-              <p className="text-xs font-bold text-slate-500 uppercase tracking-wide">오늘 출퇴근 상태</p>
+              <p className="text-xs font-bold text-slate-500 uppercase tracking-wide">{t("todayStatus")}</p>
 
               <div className="grid grid-cols-2 gap-3">
                 <div className={`p-3 rounded-xl border ${checkedIn ? "bg-emerald-50 border-emerald-200" : "bg-slate-50 border-slate-200"}`}>
                   <div className="flex items-center gap-1.5 text-[10px] font-bold text-slate-500 uppercase">
                     <LogIn className="w-3 h-3" />
-                    출근
+                    {t("checkIn")}
                   </div>
                   <p className={`text-xl font-extrabold font-mono mt-1 ${checkedIn ? "text-emerald-700" : "text-slate-300"}`}>
                     {fmtTime(todayAttendance?.checkInAt ?? null)}
@@ -329,7 +422,7 @@ export const WorkerPortal: React.FC = () => {
                 <div className={`p-3 rounded-xl border ${checkedOut ? "bg-rose-50 border-rose-200" : "bg-slate-50 border-slate-200"}`}>
                   <div className="flex items-center gap-1.5 text-[10px] font-bold text-slate-500 uppercase">
                     <LogOut className="w-3 h-3" />
-                    퇴근
+                    {t("checkOut")}
                   </div>
                   <p className={`text-xl font-extrabold font-mono mt-1 ${checkedOut ? "text-rose-700" : "text-slate-300"}`}>
                     {fmtTime(todayAttendance?.checkOutAt ?? null)}
@@ -340,7 +433,7 @@ export const WorkerPortal: React.FC = () => {
               {checkedIn && checkedOut && (
                 <div className="flex items-center gap-2 p-2.5 bg-blue-50 border border-blue-200 rounded-lg text-xs text-blue-800">
                   <CheckCircle2 className="w-4 h-4 shrink-0" />
-                  오늘 일과가 마감되었습니다. 수고하셨습니다.
+                  {t("workdayFinished")}
                 </div>
               )}
             </div>
@@ -352,7 +445,7 @@ export const WorkerPortal: React.FC = () => {
                 className="w-full flex items-center justify-center gap-3 p-5 bg-emerald-600 text-white rounded-2xl font-extrabold text-lg shadow-lg hover:bg-emerald-700 active:scale-[0.99] disabled:opacity-40 disabled:cursor-not-allowed transition"
               >
                 <QrCode className="w-6 h-6" />
-                {checkedIn ? "출근 완료됨" : "출근 QR 스캔"}
+                {checkedIn ? t("checkInDone") : t("checkInScan")}
               </button>
               <button
                 onClick={() => setScannerAction("out")}
@@ -360,7 +453,7 @@ export const WorkerPortal: React.FC = () => {
                 className="w-full flex items-center justify-center gap-3 p-5 bg-rose-600 text-white rounded-2xl font-extrabold text-lg shadow-lg hover:bg-rose-700 active:scale-[0.99] disabled:opacity-40 disabled:cursor-not-allowed transition"
               >
                 <QrCode className="w-6 h-6" />
-                {checkedOut ? "퇴근 완료됨" : "퇴근 QR 스캔"}
+                {checkedOut ? t("checkOutDone") : t("checkOutScan")}
               </button>
             </div>
 
@@ -373,15 +466,15 @@ export const WorkerPortal: React.FC = () => {
                   <CalendarDays className="w-5 h-5 text-slate-700" />
                 </div>
                 <div>
-                  <p className="text-sm font-bold text-slate-900">출퇴근 이력</p>
-                  <p className="text-[11px] text-slate-500 mt-0.5">전체 출퇴근 기록 확인</p>
+                  <p className="text-sm font-bold text-slate-900">{t("attendanceHistory")}</p>
+                  <p className="text-[11px] text-slate-500 mt-0.5">{t("historyOpenDesc")}</p>
                 </div>
               </div>
-              <span className="text-xs font-semibold text-slate-400">열기</span>
+              <span className="text-xs font-semibold text-slate-400">{t("open")}</span>
             </button>
 
             <p className="text-[11px] text-center text-slate-400 leading-relaxed">
-              현장 입구에 부착된 QR 코드를<br />출근 시·퇴근 시 한 번씩 스캔해주세요.
+              {t("scanGuide")}
             </p>
           </>
         ) : (
@@ -389,30 +482,30 @@ export const WorkerPortal: React.FC = () => {
             <div className="bg-white rounded-2xl border border-slate-200 shadow-sm p-5 space-y-4">
               <div className="flex items-center justify-between gap-3">
                 <div>
-                  <p className="text-xs font-bold text-slate-500 uppercase tracking-wide">내 출퇴근 이력</p>
-                  <p className="text-[11px] text-slate-400 mt-1">입사일 기준 전체 기록</p>
+                  <p className="text-xs font-bold text-slate-500 uppercase tracking-wide">{t("myHistory")}</p>
+                  <p className="text-[11px] text-slate-400 mt-1">{t("historySinceJoin")}</p>
                 </div>
                 <button
                   onClick={loadAttendanceHistory}
                   className="text-[11px] font-semibold text-slate-500 hover:text-slate-900"
                 >
-                  새로고침
+                  {t("refresh")}
                 </button>
               </div>
 
               <div className="grid grid-cols-3 gap-2">
                 <div className="rounded-xl border border-slate-200 bg-slate-50 p-3">
-                  <p className="text-[10px] font-bold text-slate-500 uppercase">출근 일수</p>
-                  <p className="mt-1 text-lg font-black text-slate-900">{totalWorkDays}일</p>
+                  <p className="text-[10px] font-bold text-slate-500 uppercase">{t("totalDays")}</p>
+                  <p className="mt-1 text-lg font-black text-slate-900">{totalWorkDays} {t("dayUnit")}</p>
                 </div>
                 <div className="rounded-xl border border-slate-200 bg-slate-50 p-3">
-                  <p className="text-[10px] font-bold text-slate-500 uppercase">누적 근무</p>
-                  <p className="mt-1 text-lg font-black text-slate-900">{fmtHours(totalWorkHours)}</p>
+                  <p className="text-[10px] font-bold text-slate-500 uppercase">{t("totalHours")}</p>
+                  <p className="mt-1 text-lg font-black text-slate-900">{formatHourSummary(totalWorkHours)}</p>
                 </div>
                 <div className="rounded-xl border border-slate-200 bg-slate-50 p-3">
-                  <p className="text-[10px] font-bold text-slate-500 uppercase">미퇴근</p>
+                  <p className="text-[10px] font-bold text-slate-500 uppercase">{t("missingCheckout")}</p>
                   <p className={`mt-1 text-lg font-black ${missingCheckoutCount > 0 ? "text-rose-600" : "text-slate-900"}`}>
-                    {missingCheckoutCount}건
+                    {missingCheckoutCount} {t("caseUnit")}
                   </p>
                 </div>
               </div>
@@ -420,7 +513,7 @@ export const WorkerPortal: React.FC = () => {
 
             {recordsLoading && (
               <div className="rounded-xl border border-slate-200 bg-slate-50 px-4 py-6 text-center text-sm text-slate-500">
-                출퇴근 이력을 불러오는 중입니다...
+                {t("loadingHistory")}
               </div>
             )}
 
@@ -433,7 +526,7 @@ export const WorkerPortal: React.FC = () => {
 
             {!recordsLoading && !recordsError && attendanceHistory.length === 0 && (
               <div className="rounded-xl border border-dashed border-slate-300 bg-slate-50 px-4 py-6 text-center text-sm text-slate-500">
-                아직 등록된 출퇴근 기록이 없습니다.
+                {t("noHistory")}
               </div>
             )}
 
@@ -447,15 +540,15 @@ export const WorkerPortal: React.FC = () => {
                       className="rounded-xl border border-slate-200 bg-white px-4 py-3 flex items-center justify-between gap-3"
                     >
                       <div className="min-w-0">
-                        <p className="text-sm font-bold text-slate-900">{fmtWorkDate(record.workDate)}</p>
+                        <p className="text-sm font-bold text-slate-900">{fmtWorkDate(record.workDate, locale)}</p>
                         <div className="mt-1 flex items-center gap-3 text-[11px] text-slate-500 font-mono">
-                          <span>출근 {fmtTime(record.checkInAt)}</span>
-                          <span>퇴근 {fmtTime(record.checkOutAt)}</span>
+                          <span>{t("checkIn")} {fmtTime(record.checkInAt)}</span>
+                          <span>{t("checkOut")} {fmtTime(record.checkOutAt)}</span>
                         </div>
                       </div>
                       <div className="text-right shrink-0">
                         <p className={`text-xs font-bold ${incomplete ? "text-rose-600" : "text-slate-700"}`}>
-                          {incomplete ? "퇴근 미등록" : fmtHours(record.workHours)}
+                          {incomplete ? t("checkoutMissing") : formatHourSummary(record.workHours)}
                         </p>
                       </div>
                     </div>
@@ -467,20 +560,18 @@ export const WorkerPortal: React.FC = () => {
         )}
       </main>
 
-      {toast && (
-        <div className="fixed bottom-6 left-1/2 -translate-x-1/2 z-50">
-          <div className="bg-slate-900 text-white px-5 py-3 rounded-full shadow-2xl flex items-center gap-2 text-sm font-semibold">
-            <CheckCircle2 className="w-4 h-4 text-emerald-400" />
-            {toast}
-          </div>
-        </div>
-      )}
-
       {scannerAction && (
         <ScannerModal
           action={scannerAction}
           onScan={handleScan}
           onClose={handleCloseScanner}
+        />
+      )}
+
+      {resultAction && (
+        <AttendanceResultModal
+          action={resultAction}
+          onConfirm={() => setResultAction(null)}
         />
       )}
     </div>

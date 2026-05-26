@@ -4,6 +4,10 @@ import { supabase } from "../supabase";
 import { AllSettings, Worker, Holiday, SettingsHistory } from "../types";
 import { adminIdToEmail, workerIdToEmail, roleFromEmail, AuthRole } from "../utils/auth";
 
+const LOGIN_MODE_KEY = "checkin-login-mode";
+const LOGIN_MODE_SESSION = "session";
+const LOGIN_MODE_PERSISTENT = "persistent";
+
 // ============================================================
 // DB row ↔ App 타입 어댑터
 // ============================================================
@@ -115,7 +119,7 @@ interface AppContextType {
   // 근로자 전용: 본인 오늘 출퇴근 상태
   todayAttendance: TodayAttendance | null;
 
-  loginWithId: (id: string, password: string, role: AuthRole) => Promise<void>;
+  loginWithId: (id: string, password: string, role: AuthRole, rememberMe: boolean) => Promise<void>;
   logout: () => Promise<void>;
 
   updateSetting: (category: keyof AllSettings, newValues: any) => Promise<void>;
@@ -189,20 +193,50 @@ export const SupabaseProvider: React.FC<{ children: React.ReactNode }> = ({ chil
   const [todayAttendance, setTodayAttendance] = useState<TodayAttendance | null>(null);
 
   // ─── Auth ──────────────────────────────────────────────
-  const loginWithId = async (id: string, password: string, asRole: AuthRole) => {
+  const loginWithId = async (id: string, password: string, asRole: AuthRole, rememberMe: boolean) => {
     const email = asRole === "admin" ? adminIdToEmail(id) : workerIdToEmail(id);
     const { error } = await supabase.auth.signInWithPassword({ email, password });
     if (error) throw new Error(translateAuthError(error.message));
+
+    if (typeof window !== "undefined") {
+      const mode = rememberMe ? LOGIN_MODE_PERSISTENT : LOGIN_MODE_SESSION;
+      window.localStorage.setItem(LOGIN_MODE_KEY, mode);
+      window.sessionStorage.setItem(LOGIN_MODE_KEY, mode);
+    }
   };
 
   const logout = async () => {
     await supabase.auth.signOut();
+    if (typeof window !== "undefined") {
+      window.localStorage.removeItem(LOGIN_MODE_KEY);
+      window.sessionStorage.removeItem(LOGIN_MODE_KEY);
+    }
   };
 
   useEffect(() => {
-    supabase.auth.getSession().then(({ data }) => {
-      setUser(data.session?.user ?? null);
-      setRole(roleFromEmail(data.session?.user?.email));
+    supabase.auth.getSession().then(async ({ data }) => {
+      const session = data.session;
+
+      if (typeof window !== "undefined") {
+        const savedMode = window.localStorage.getItem(LOGIN_MODE_KEY);
+        const liveMode = window.sessionStorage.getItem(LOGIN_MODE_KEY);
+
+        if (session && savedMode === LOGIN_MODE_SESSION && liveMode !== LOGIN_MODE_SESSION) {
+          await supabase.auth.signOut();
+          window.localStorage.removeItem(LOGIN_MODE_KEY);
+          setUser(null);
+          setRole(null);
+          setLoading(false);
+          return;
+        }
+
+        if (savedMode && !liveMode) {
+          window.sessionStorage.setItem(LOGIN_MODE_KEY, savedMode);
+        }
+      }
+
+      setUser(session?.user ?? null);
+      setRole(roleFromEmail(session?.user?.email));
       setLoading(false);
     });
 

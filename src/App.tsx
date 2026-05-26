@@ -6,6 +6,7 @@ import { SimulatorTab } from "./components/SimulatorTab";
 import { AttendanceTab } from "./components/AttendanceTab";
 import { WorkerPortal } from "./components/WorkerPortal";
 import { AuthRole } from "./utils/auth";
+import { LanguageProvider, languageOptions, useLanguage } from "./i18n";
 import {
   Users,
   Settings as SettingsIcon,
@@ -28,9 +29,11 @@ import {
 
 const LoginGate: React.FC = () => {
   const { loginWithId } = useApp();
+  const { language, setLanguage, t } = useLanguage();
   const [selectedRole, setSelectedRole] = useState<AuthRole | null>(null);
   const [id, setId] = useState("");
   const [password, setPassword] = useState("");
+  const [rememberMe, setRememberMe] = useState(true);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState("");
 
@@ -40,9 +43,9 @@ const LoginGate: React.FC = () => {
     setError("");
     setSubmitting(true);
     try {
-      await loginWithId(id, password, selectedRole);
+      await loginWithId(id, password, selectedRole, rememberMe);
     } catch (err: any) {
-      setError(err.message || "로그인에 실패했습니다.");
+      setError(err.message || t("loginFailed"));
     } finally {
       setSubmitting(false);
     }
@@ -60,9 +63,9 @@ const LoginGate: React.FC = () => {
           </div>
 
           <div className="space-y-2">
-            <h1 className="text-2xl font-black text-gray-900 tracking-tight">현장 노무 & 임금 정책 관리</h1>
+            <h1 className="text-2xl font-black text-gray-900 tracking-tight">{t("systemTitle")}</h1>
             <p className="text-xs text-gray-500 max-w-xs mx-auto leading-relaxed">
-              로그인 방식을 선택해주세요.
+              {t("chooseLoginMethod")}
             </p>
           </div>
 
@@ -75,8 +78,8 @@ const LoginGate: React.FC = () => {
                 <ShieldCheck className="w-5 h-5" />
               </div>
               <div className="text-left flex-1">
-                <p className="text-sm font-bold">관리자 로그인</p>
-                <p className="text-[11px] text-slate-400 mt-0.5">근로자·임금정책·휴일 관리</p>
+                <p className="text-sm font-bold">{t("adminLogin")}</p>
+                <p className="text-[11px] text-slate-400 mt-0.5">{t("adminLoginDesc")}</p>
               </div>
               <Unlock className="w-4 h-4 text-slate-400 group-hover:text-white transition" />
             </button>
@@ -89,16 +92,29 @@ const LoginGate: React.FC = () => {
                 <HardHat className="w-5 h-5 text-white" />
               </div>
               <div className="text-left flex-1">
-                <p className="text-sm font-bold">근로자 로그인</p>
-                <p className="text-[11px] text-slate-500 mt-0.5">출퇴근 체크인·본인 근태 조회</p>
+                <p className="text-sm font-bold">{t("workerLogin")}</p>
+                <p className="text-[11px] text-slate-500 mt-0.5">{t("workerLoginDesc")}</p>
               </div>
               <Unlock className="w-4 h-4 text-slate-400 group-hover:text-slate-900 transition" />
             </button>
           </div>
 
-          <p className="text-[10px] text-gray-400">
-            계정이 없으신가요? 현장 관리자에게 문의하세요.
-          </p>
+          <div className="max-w-[180px] mx-auto text-left">
+            <label className="block text-[10px] font-semibold text-gray-500 mb-1.5">
+              {t("languageSelect")}
+            </label>
+            <select
+              value={language}
+              onChange={(e) => setLanguage(e.target.value as typeof language)}
+              className="w-full px-3 py-2 border border-gray-200 rounded-lg text-xs bg-white text-slate-700 focus:outline-none focus:border-slate-400"
+            >
+              {languageOptions.map((option) => (
+                <option key={option.value} value={option.value}>
+                  {option.label}
+                </option>
+              ))}
+            </select>
+          </div>
         </div>
       </div>
     );
@@ -116,12 +132,13 @@ const LoginGate: React.FC = () => {
             setSelectedRole(null);
             setId("");
             setPassword("");
+            setRememberMe(true);
             setError("");
           }}
           className="flex items-center gap-1 text-xs text-slate-500 hover:text-slate-900 transition"
         >
           <ArrowLeft className="w-3 h-3" />
-          역할 선택으로
+          {t("backToRoleSelection")}
         </button>
 
         <div className="text-center space-y-2">
@@ -129,23 +146,23 @@ const LoginGate: React.FC = () => {
             {isAdmin ? <ShieldCheck className="w-7 h-7 text-slate-800" /> : <HardHat className="w-7 h-7 text-orange-600" />}
           </div>
           <h2 className="text-xl font-black text-gray-900">
-            {isAdmin ? "관리자 로그인" : "근로자 로그인"}
+            {isAdmin ? t("adminLoginTitle") : t("workerLoginTitle")}
           </h2>
           <p className="text-xs text-gray-500">
-            {isAdmin ? "발급받은 관리자 ID와 비밀번호를 입력하세요." : "전화번호와 초기 비밀번호로 로그인하세요."}
+            {isAdmin ? t("adminLoginHint") : t("workerLoginHint")}
           </p>
         </div>
 
         <form onSubmit={handleSubmit} className="space-y-4">
           <div>
             <label className="block text-xs font-semibold text-gray-600 mb-1.5">
-              {isAdmin ? "관리자 ID" : "전화번호 (로그인 ID)"}
+              {isAdmin ? t("adminIdLabel") : t("workerPhoneLabel")}
             </label>
             <input
               type="text"
               value={id}
               onChange={(e) => setId(e.target.value)}
-              placeholder={isAdmin ? "예: cm" : "예: 010-1234-5678"}
+              placeholder={isAdmin ? t("adminIdPlaceholder") : t("workerPhonePlaceholder")}
               autoComplete="username"
               autoFocus
               required
@@ -154,7 +171,7 @@ const LoginGate: React.FC = () => {
           </div>
 
           <div>
-            <label className="block text-xs font-semibold text-gray-600 mb-1.5">비밀번호</label>
+            <label className="block text-xs font-semibold text-gray-600 mb-1.5">{t("password")}</label>
             <input
               type="password"
               value={password}
@@ -164,6 +181,16 @@ const LoginGate: React.FC = () => {
               className="w-full px-3 py-2.5 border border-gray-200 rounded-lg text-base md:text-sm font-mono focus:outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500"
             />
           </div>
+
+          <label className="flex items-center gap-2 text-sm text-slate-600 select-none">
+            <input
+              type="checkbox"
+              checked={rememberMe}
+              onChange={(e) => setRememberMe(e.target.checked)}
+              className="h-4 w-4 rounded border-slate-300 text-slate-900 focus:ring-slate-400"
+            />
+            {t("rememberMe")}
+          </label>
 
           {error && (
             <div className="flex items-center gap-2 p-2.5 bg-red-50 border border-red-200 rounded-lg text-xs text-red-700">
@@ -182,7 +209,7 @@ const LoginGate: React.FC = () => {
             }`}
           >
             <Unlock className="w-4 h-4" />
-            {submitting ? "로그인 중..." : "로그인"}
+            {submitting ? t("loggingIn") : t("login")}
           </button>
         </form>
       </div>
@@ -328,6 +355,7 @@ const AdminPortal: React.FC = () => {
 
 function AppContent() {
   const { user, role, loading } = useApp();
+  const { t } = useLanguage();
 
   if (loading) {
     return (
@@ -335,8 +363,8 @@ function AppContent() {
         <div className="p-8 bg-white rounded-2xl border border-gray-150 shadow-xl flex flex-col items-center space-y-4 max-w-sm text-center">
           <div className="animate-spin rounded-full h-10 w-10 border-b-2 border-gray-950"></div>
           <div>
-            <h3 className="text-base font-bold text-gray-900">세션 확인 중...</h3>
-            <p className="text-xs text-gray-400 mt-1">Supabase 인증 상태를 동기화하고 있습니다.</p>
+            <h3 className="text-base font-bold text-gray-900">{t("sessionChecking")}</h3>
+            <p className="text-xs text-gray-400 mt-1">{t("syncingAuth")}</p>
           </div>
         </div>
       </div>
@@ -350,8 +378,10 @@ function AppContent() {
 
 export default function App() {
   return (
-    <SupabaseProvider>
-      <AppContent />
-    </SupabaseProvider>
+    <LanguageProvider>
+      <SupabaseProvider>
+        <AppContent />
+      </SupabaseProvider>
+    </LanguageProvider>
   );
 }
