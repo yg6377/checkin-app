@@ -12,6 +12,7 @@ import {
   X,
   Camera,
   CalendarDays,
+  ChevronLeft,
 } from "lucide-react";
 
 // ============================================================
@@ -94,7 +95,6 @@ const ScannerModal: React.FC<{
             }
             try {
               await onScanRef.current(decodedText);
-              if (!cancelled) onCloseRef.current();
             } catch (e: any) {
               if (!cancelled) {
                 setStatus("error");
@@ -198,7 +198,7 @@ export const WorkerPortal: React.FC = () => {
   const [scannerAction, setScannerAction] = useState<"in" | "out" | null>(null);
   const [now, setNow] = useState(new Date());
   const [toast, setToast] = useState<string>("");
-  const [historyOpen, setHistoryOpen] = useState(false);
+  const [activeView, setActiveView] = useState<"home" | "history">("home");
   const [recordsLoading, setRecordsLoading] = useState(false);
   const [recordsError, setRecordsError] = useState("");
   const [attendanceHistory, setAttendanceHistory] = useState<AttendanceRecord[]>([]);
@@ -249,9 +249,10 @@ export const WorkerPortal: React.FC = () => {
 
   const handleScan = useCallback(async (code: string) => {
     if (!scannerAction) return;
+    setScannerAction(null);
     await submitAttendance(code, scannerAction);
     await loadAttendanceHistory();
-    setToast(scannerAction === "in" ? "출근이 등록되었습니다." : "퇴근이 등록되었습니다.");
+    setToast("출근 또는 퇴근 처리가 되었습니다.");
     setTimeout(() => setToast(""), 2500);
   }, [scannerAction, submitAttendance, loadAttendanceHistory]);
 
@@ -272,18 +273,24 @@ export const WorkerPortal: React.FC = () => {
               <HardHat className="w-4 h-4 text-white" />
             </div>
             <div>
-              <p className="text-[10px] font-mono text-slate-400">근로자 모드</p>
-              <p className="text-sm font-bold text-slate-900">{me?.name || user?.email}</p>
+              <p className="text-[10px] font-mono text-slate-400">
+                {activeView === "home" ? "근로자 모드" : "출퇴근 이력"}
+              </p>
+              <p className="text-sm font-bold text-slate-900">
+                {activeView === "home" ? me?.name || user?.email : "내 출퇴근 기록"}
+              </p>
             </div>
           </div>
           <div className="flex items-center gap-2">
-            <button
-              onClick={() => setHistoryOpen(true)}
-              className="text-[11px] text-slate-500 hover:text-slate-900 flex items-center gap-1 font-semibold"
-            >
-              <CalendarDays className="w-3.5 h-3.5" />
-              출퇴근 이력
-            </button>
+            {activeView === "history" && (
+              <button
+                onClick={() => setActiveView("home")}
+                className="text-[11px] text-slate-500 hover:text-slate-900 flex items-center gap-1 font-semibold"
+              >
+                <ChevronLeft className="w-3.5 h-3.5" />
+                돌아가기
+              </button>
+            )}
             <button
               onClick={logout}
               className="text-[11px] text-slate-500 hover:text-rose-600 flex items-center gap-1 font-semibold"
@@ -296,72 +303,168 @@ export const WorkerPortal: React.FC = () => {
       </header>
 
       <main className="flex-1 max-w-md mx-auto w-full p-4 space-y-4">
-        {/* 현재 시각 카드 */}
-        <div className="bg-white rounded-2xl border border-slate-200 shadow-sm p-5 text-center">
-          <p className="text-xs text-slate-500 font-mono">{fmtDateKo(now)}</p>
-          <p className="text-5xl font-black tracking-tight text-slate-900 font-mono mt-1">
-            {String(now.getHours()).padStart(2, "0")}:{String(now.getMinutes()).padStart(2, "0")}
-            <span className="text-xl text-slate-400">:{String(now.getSeconds()).padStart(2, "0")}</span>
-          </p>
-        </div>
-
-        {/* 오늘 상태 카드 */}
-        <div className="bg-white rounded-2xl border border-slate-200 shadow-sm p-5 space-y-3">
-          <p className="text-xs font-bold text-slate-500 uppercase tracking-wide">오늘 출퇴근 상태</p>
-
-          <div className="grid grid-cols-2 gap-3">
-            <div className={`p-3 rounded-xl border ${checkedIn ? "bg-emerald-50 border-emerald-200" : "bg-slate-50 border-slate-200"}`}>
-              <div className="flex items-center gap-1.5 text-[10px] font-bold text-slate-500 uppercase">
-                <LogIn className="w-3 h-3" />
-                출근
-              </div>
-              <p className={`text-xl font-extrabold font-mono mt-1 ${checkedIn ? "text-emerald-700" : "text-slate-300"}`}>
-                {fmtTime(todayAttendance?.checkInAt ?? null)}
+        {activeView === "home" ? (
+          <>
+            <div className="bg-white rounded-2xl border border-slate-200 shadow-sm p-5 text-center">
+              <p className="text-xs text-slate-500 font-mono">{fmtDateKo(now)}</p>
+              <p className="text-5xl font-black tracking-tight text-slate-900 font-mono mt-1">
+                {String(now.getHours()).padStart(2, "0")}:{String(now.getMinutes()).padStart(2, "0")}
+                <span className="text-xl text-slate-400">:{String(now.getSeconds()).padStart(2, "0")}</span>
               </p>
             </div>
-            <div className={`p-3 rounded-xl border ${checkedOut ? "bg-rose-50 border-rose-200" : "bg-slate-50 border-slate-200"}`}>
-              <div className="flex items-center gap-1.5 text-[10px] font-bold text-slate-500 uppercase">
-                <LogOut className="w-3 h-3" />
-                퇴근
+
+            <div className="bg-white rounded-2xl border border-slate-200 shadow-sm p-5 space-y-3">
+              <p className="text-xs font-bold text-slate-500 uppercase tracking-wide">오늘 출퇴근 상태</p>
+
+              <div className="grid grid-cols-2 gap-3">
+                <div className={`p-3 rounded-xl border ${checkedIn ? "bg-emerald-50 border-emerald-200" : "bg-slate-50 border-slate-200"}`}>
+                  <div className="flex items-center gap-1.5 text-[10px] font-bold text-slate-500 uppercase">
+                    <LogIn className="w-3 h-3" />
+                    출근
+                  </div>
+                  <p className={`text-xl font-extrabold font-mono mt-1 ${checkedIn ? "text-emerald-700" : "text-slate-300"}`}>
+                    {fmtTime(todayAttendance?.checkInAt ?? null)}
+                  </p>
+                </div>
+                <div className={`p-3 rounded-xl border ${checkedOut ? "bg-rose-50 border-rose-200" : "bg-slate-50 border-slate-200"}`}>
+                  <div className="flex items-center gap-1.5 text-[10px] font-bold text-slate-500 uppercase">
+                    <LogOut className="w-3 h-3" />
+                    퇴근
+                  </div>
+                  <p className={`text-xl font-extrabold font-mono mt-1 ${checkedOut ? "text-rose-700" : "text-slate-300"}`}>
+                    {fmtTime(todayAttendance?.checkOutAt ?? null)}
+                  </p>
+                </div>
               </div>
-              <p className={`text-xl font-extrabold font-mono mt-1 ${checkedOut ? "text-rose-700" : "text-slate-300"}`}>
-                {fmtTime(todayAttendance?.checkOutAt ?? null)}
-              </p>
+
+              {checkedIn && checkedOut && (
+                <div className="flex items-center gap-2 p-2.5 bg-blue-50 border border-blue-200 rounded-lg text-xs text-blue-800">
+                  <CheckCircle2 className="w-4 h-4 shrink-0" />
+                  오늘 일과가 마감되었습니다. 수고하셨습니다.
+                </div>
+              )}
             </div>
-          </div>
 
-          {checkedIn && checkedOut && (
-            <div className="flex items-center gap-2 p-2.5 bg-blue-50 border border-blue-200 rounded-lg text-xs text-blue-800">
-              <CheckCircle2 className="w-4 h-4 shrink-0" />
-              오늘 일과가 마감되었습니다. 수고하셨습니다.
+            <div className="space-y-3">
+              <button
+                onClick={() => setScannerAction("in")}
+                disabled={checkedIn}
+                className="w-full flex items-center justify-center gap-3 p-5 bg-emerald-600 text-white rounded-2xl font-extrabold text-lg shadow-lg hover:bg-emerald-700 active:scale-[0.99] disabled:opacity-40 disabled:cursor-not-allowed transition"
+              >
+                <QrCode className="w-6 h-6" />
+                {checkedIn ? "출근 완료됨" : "출근 QR 스캔"}
+              </button>
+              <button
+                onClick={() => setScannerAction("out")}
+                disabled={!checkedIn || checkedOut}
+                className="w-full flex items-center justify-center gap-3 p-5 bg-rose-600 text-white rounded-2xl font-extrabold text-lg shadow-lg hover:bg-rose-700 active:scale-[0.99] disabled:opacity-40 disabled:cursor-not-allowed transition"
+              >
+                <QrCode className="w-6 h-6" />
+                {checkedOut ? "퇴근 완료됨" : "퇴근 QR 스캔"}
+              </button>
             </div>
-          )}
-        </div>
 
-        {/* 출근/퇴근 버튼 */}
-        <div className="space-y-3">
-          <button
-            onClick={() => setScannerAction("in")}
-            disabled={checkedIn}
-            className="w-full flex items-center justify-center gap-3 p-5 bg-emerald-600 text-white rounded-2xl font-extrabold text-lg shadow-lg hover:bg-emerald-700 active:scale-[0.99] disabled:opacity-40 disabled:cursor-not-allowed transition"
-          >
-            <QrCode className="w-6 h-6" />
-            {checkedIn ? "출근 완료됨" : "출근 QR 스캔"}
-          </button>
-          <button
-            onClick={() => setScannerAction("out")}
-            disabled={!checkedIn || checkedOut}
-            className="w-full flex items-center justify-center gap-3 p-5 bg-rose-600 text-white rounded-2xl font-extrabold text-lg shadow-lg hover:bg-rose-700 active:scale-[0.99] disabled:opacity-40 disabled:cursor-not-allowed transition"
-          >
-            <QrCode className="w-6 h-6" />
-            {checkedOut ? "퇴근 완료됨" : "퇴근 QR 스캔"}
-          </button>
-        </div>
+            <button
+              onClick={() => setActiveView("history")}
+              className="w-full bg-white rounded-2xl border border-slate-200 shadow-sm px-5 py-4 flex items-center justify-between text-left hover:border-slate-300 transition"
+            >
+              <div className="flex items-center gap-3">
+                <div className="bg-slate-100 p-2 rounded-xl">
+                  <CalendarDays className="w-5 h-5 text-slate-700" />
+                </div>
+                <div>
+                  <p className="text-sm font-bold text-slate-900">출퇴근 이력</p>
+                  <p className="text-[11px] text-slate-500 mt-0.5">전체 출퇴근 기록 확인</p>
+                </div>
+              </div>
+              <span className="text-xs font-semibold text-slate-400">열기</span>
+            </button>
 
-        <p className="text-[11px] text-center text-slate-400 leading-relaxed">
-          현장 입구에 부착된 QR 코드를<br />출근 시·퇴근 시 한 번씩 스캔해주세요.
-        </p>
+            <p className="text-[11px] text-center text-slate-400 leading-relaxed">
+              현장 입구에 부착된 QR 코드를<br />출근 시·퇴근 시 한 번씩 스캔해주세요.
+            </p>
+          </>
+        ) : (
+          <>
+            <div className="bg-white rounded-2xl border border-slate-200 shadow-sm p-5 space-y-4">
+              <div className="flex items-center justify-between gap-3">
+                <div>
+                  <p className="text-xs font-bold text-slate-500 uppercase tracking-wide">내 출퇴근 이력</p>
+                  <p className="text-[11px] text-slate-400 mt-1">입사일 기준 전체 기록</p>
+                </div>
+                <button
+                  onClick={loadAttendanceHistory}
+                  className="text-[11px] font-semibold text-slate-500 hover:text-slate-900"
+                >
+                  새로고침
+                </button>
+              </div>
 
+              <div className="grid grid-cols-3 gap-2">
+                <div className="rounded-xl border border-slate-200 bg-slate-50 p-3">
+                  <p className="text-[10px] font-bold text-slate-500 uppercase">출근 일수</p>
+                  <p className="mt-1 text-lg font-black text-slate-900">{totalWorkDays}일</p>
+                </div>
+                <div className="rounded-xl border border-slate-200 bg-slate-50 p-3">
+                  <p className="text-[10px] font-bold text-slate-500 uppercase">누적 근무</p>
+                  <p className="mt-1 text-lg font-black text-slate-900">{fmtHours(totalWorkHours)}</p>
+                </div>
+                <div className="rounded-xl border border-slate-200 bg-slate-50 p-3">
+                  <p className="text-[10px] font-bold text-slate-500 uppercase">미퇴근</p>
+                  <p className={`mt-1 text-lg font-black ${missingCheckoutCount > 0 ? "text-rose-600" : "text-slate-900"}`}>
+                    {missingCheckoutCount}건
+                  </p>
+                </div>
+              </div>
+            </div>
+
+            {recordsLoading && (
+              <div className="rounded-xl border border-slate-200 bg-slate-50 px-4 py-6 text-center text-sm text-slate-500">
+                출퇴근 이력을 불러오는 중입니다...
+              </div>
+            )}
+
+            {!recordsLoading && recordsError && (
+              <div className="flex items-start gap-2 p-3 bg-rose-50 border border-rose-200 rounded-xl text-rose-700">
+                <AlertCircle className="w-4 h-4 shrink-0 mt-0.5" />
+                <p className="text-[11px] leading-relaxed">{recordsError}</p>
+              </div>
+            )}
+
+            {!recordsLoading && !recordsError && attendanceHistory.length === 0 && (
+              <div className="rounded-xl border border-dashed border-slate-300 bg-slate-50 px-4 py-6 text-center text-sm text-slate-500">
+                아직 등록된 출퇴근 기록이 없습니다.
+              </div>
+            )}
+
+            {!recordsLoading && !recordsError && attendanceHistory.length > 0 && (
+              <div className="space-y-2">
+                {attendanceHistory.map((record) => {
+                  const incomplete = record.checkInAt && !record.checkOutAt;
+                  return (
+                    <div
+                      key={record.id}
+                      className="rounded-xl border border-slate-200 bg-white px-4 py-3 flex items-center justify-between gap-3"
+                    >
+                      <div className="min-w-0">
+                        <p className="text-sm font-bold text-slate-900">{fmtWorkDate(record.workDate)}</p>
+                        <div className="mt-1 flex items-center gap-3 text-[11px] text-slate-500 font-mono">
+                          <span>출근 {fmtTime(record.checkInAt)}</span>
+                          <span>퇴근 {fmtTime(record.checkOutAt)}</span>
+                        </div>
+                      </div>
+                      <div className="text-right shrink-0">
+                        <p className={`text-xs font-bold ${incomplete ? "text-rose-600" : "text-slate-700"}`}>
+                          {incomplete ? "퇴근 미등록" : fmtHours(record.workHours)}
+                        </p>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+          </>
+        )}
       </main>
 
       {toast && (
@@ -379,95 +482,6 @@ export const WorkerPortal: React.FC = () => {
           onScan={handleScan}
           onClose={handleCloseScanner}
         />
-      )}
-
-      {historyOpen && (
-        <div className="fixed inset-0 z-50 bg-black/60 flex items-end justify-center">
-          <div className="bg-white w-full max-w-md max-h-[85vh] rounded-t-3xl shadow-2xl overflow-hidden flex flex-col">
-            <div className="px-5 py-4 border-b border-slate-200 flex items-center justify-between">
-              <div>
-                <h3 className="text-base font-extrabold text-slate-900">출퇴근 이력</h3>
-                <p className="text-[11px] text-slate-400 mt-0.5">입사일 기준 전체 기록</p>
-              </div>
-              <div className="flex items-center gap-2">
-                <button
-                  onClick={loadAttendanceHistory}
-                  className="text-[11px] font-semibold text-slate-500 hover:text-slate-900"
-                >
-                  새로고침
-                </button>
-                <button onClick={() => setHistoryOpen(false)} className="p-1.5 rounded-full hover:bg-slate-100">
-                  <X className="w-5 h-5 text-slate-500" />
-                </button>
-              </div>
-            </div>
-
-            <div className="p-4 overflow-y-auto space-y-4">
-              <div className="grid grid-cols-3 gap-2">
-                <div className="rounded-xl border border-slate-200 bg-slate-50 p-3">
-                  <p className="text-[10px] font-bold text-slate-500 uppercase">출근 일수</p>
-                  <p className="mt-1 text-lg font-black text-slate-900">{totalWorkDays}일</p>
-                </div>
-                <div className="rounded-xl border border-slate-200 bg-slate-50 p-3">
-                  <p className="text-[10px] font-bold text-slate-500 uppercase">누적 근무</p>
-                  <p className="mt-1 text-lg font-black text-slate-900">{fmtHours(totalWorkHours)}</p>
-                </div>
-                <div className="rounded-xl border border-slate-200 bg-slate-50 p-3">
-                  <p className="text-[10px] font-bold text-slate-500 uppercase">미퇴근</p>
-                  <p className={`mt-1 text-lg font-black ${missingCheckoutCount > 0 ? "text-rose-600" : "text-slate-900"}`}>
-                    {missingCheckoutCount}건
-                  </p>
-                </div>
-              </div>
-
-              {recordsLoading && (
-                <div className="rounded-xl border border-slate-200 bg-slate-50 px-4 py-6 text-center text-sm text-slate-500">
-                  출퇴근 이력을 불러오는 중입니다...
-                </div>
-              )}
-
-              {!recordsLoading && recordsError && (
-                <div className="flex items-start gap-2 p-3 bg-rose-50 border border-rose-200 rounded-xl text-rose-700">
-                  <AlertCircle className="w-4 h-4 shrink-0 mt-0.5" />
-                  <p className="text-[11px] leading-relaxed">{recordsError}</p>
-                </div>
-              )}
-
-              {!recordsLoading && !recordsError && attendanceHistory.length === 0 && (
-                <div className="rounded-xl border border-dashed border-slate-300 bg-slate-50 px-4 py-6 text-center text-sm text-slate-500">
-                  아직 등록된 출퇴근 기록이 없습니다.
-                </div>
-              )}
-
-              {!recordsLoading && !recordsError && attendanceHistory.length > 0 && (
-                <div className="space-y-2">
-                  {attendanceHistory.map((record) => {
-                    const incomplete = record.checkInAt && !record.checkOutAt;
-                    return (
-                      <div
-                        key={record.id}
-                        className="rounded-xl border border-slate-200 bg-white px-4 py-3 flex items-center justify-between gap-3"
-                      >
-                        <div className="min-w-0">
-                          <p className="text-sm font-bold text-slate-900">{fmtWorkDate(record.workDate)}</p>
-                          <div className="mt-1 flex items-center gap-3 text-[11px] text-slate-500 font-mono">
-                            <span>출근 {fmtTime(record.checkInAt)}</span>
-                            <span>퇴근 {fmtTime(record.checkOutAt)}</span>
-                          </div>
-                        </div>
-                        <div className="text-right shrink-0">
-                          <p className={`text-xs font-bold ${incomplete ? "text-rose-600" : "text-slate-700"}`}>
-                            {incomplete ? "퇴근 미등록" : fmtHours(record.workHours)}
-                          </p>
-                        </div>
-                      </div>
-                    );
-                  })}
-                </div>
-              )}
-            </div>
-          </div>
-        </div>
       )}
     </div>
   );
