@@ -164,7 +164,7 @@ const ScannerModal: React.FC<{
   const isIn = action === "in";
 
   return (
-    <div className="fixed inset-0 z-50 bg-black/70 flex items-center justify-center p-4">
+    <div className="fixed inset-0 z-50 bg-black/70 flex items-center justify-center p-4 safe-area-modal">
       <div className="bg-white rounded-3xl max-w-md w-full overflow-hidden shadow-2xl">
         <div className={`px-5 py-4 flex items-center justify-between ${isIn ? "bg-emerald-600" : "bg-rose-600"} text-white`}>
           <div>
@@ -226,7 +226,7 @@ const AttendanceResultModal: React.FC<{
   const isCheckIn = action === "in";
 
   return (
-    <div className="fixed inset-0 z-50 bg-black/70 flex items-center justify-center p-4">
+    <div className="fixed inset-0 z-50 bg-black/70 flex items-center justify-center p-4 safe-area-modal">
       <div className="bg-white rounded-3xl max-w-sm w-full overflow-hidden shadow-2xl">
         <div className={`px-5 py-4 ${isCheckIn ? "bg-emerald-600" : "bg-rose-600"} text-white`}>
           <h3 className="text-base font-extrabold flex items-center gap-2">
@@ -347,7 +347,7 @@ export const WorkerPortal: React.FC = () => {
   const missingCheckoutCount = attendanceHistory.filter((r) => r.checkInAt && !r.checkOutAt).length;
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-slate-50 to-stone-100 font-sans flex flex-col">
+    <div className="safe-area-screen bg-gradient-to-br from-slate-50 to-stone-100 font-sans flex flex-col">
       <header className="bg-white border-b border-slate-200 shadow-sm">
         <div className="max-w-md mx-auto px-4 py-3 flex items-center justify-between">
           <div className="flex items-center gap-2">
