@@ -11,7 +11,7 @@ export default defineConfig(() => {
       tailwindcss(),
       VitePWA({
         registerType: 'prompt',
-        includeAssets: ['icons/checkin-icon.svg'],
+        includeAssets: ['icons/workflow-icon.png'],
         manifest: {
           name: '출퇴근 앱',
           short_name: '출퇴근',
