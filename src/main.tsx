@@ -9,13 +9,10 @@ const UPDATE_CHECK_INTERVAL_MS = 60 * 60 * 1000;
 const updateSW = registerSW({
   immediate: true,
   onNeedRefresh() {
-    const shouldUpdate = window.confirm(
-      '새로운 버전이 있습니다. 지금 업데이트하시겠습니까?',
-    );
-
-    if (shouldUpdate) {
-      void updateSW(true);
-    }
+    // 새 배포 감지 시 확인 없이 즉시 적용한다.
+    // (현장 근로자 단말에서 confirm 을 놓쳐 옛 버전 캐시에
+    //  머무는 문제 방지 — 출퇴근 기능이 안 되는 주요 원인이었음)
+    void updateSW(true);
   },
   onRegisteredSW(_swUrl, registration) {
     if (!registration) return;
