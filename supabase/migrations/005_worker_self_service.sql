@@ -1,4 +1,4 @@
--- 004: 근로자 본인 정보 수정 / 비밀번호 변경
+-- 005: 근로자 본인 정보 수정 / 비밀번호 변경
 
 create or replace function update_my_worker_profile(
   p_name             text,
