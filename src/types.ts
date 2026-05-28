@@ -112,7 +112,7 @@ export interface Worker {
   };
   loginId: string;
   initialPassword: string;
-  language: "ko" | "en";
+  language: "ko" | "vi" | "km" | "my" | "ne" | "zh" | "en";
 }
 
 export interface SettingsHistory {
