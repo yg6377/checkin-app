@@ -19,7 +19,7 @@ function dbToWorker(row: any): Worker {
     name: row.name,
     englishName: row.english_name || "",
     nationality: row.nationality || "",
-    residentNumber: row.resident_number || "",
+    residentNumber: "",  // 평문 미보관 — 수정 시 get_resident_number RPC로 별도 조회
     phone: row.phone,
     address: row.address || "",
     employmentType: row.employment_type,
@@ -60,7 +60,7 @@ function workerToDb(w: Worker | Omit<Worker, "id">) {
     name: w.name,
     english_name: w.englishName || null,
     nationality: w.nationality || null,
-    resident_number: w.residentNumber || null,
+    // resident_number 는 암호화 RPC(set_resident_number)로만 저장
     phone: w.phone,
     address: w.address || null,
     employment_type: w.employmentType,
@@ -127,6 +127,7 @@ interface AppContextType {
   updateWorker: (id: string, worker: Worker) => Promise<void>;
   deleteWorker: (id: string) => Promise<void>;
   resetWorkerPassword: (workerId: string, newPassword?: string) => Promise<WorkerCredentials>;
+  fetchResidentNumber: (workerId: string) => Promise<string>;
   addHoliday: (holiday: Omit<Holiday, "id">) => Promise<void>;
   deleteHoliday: (id: string) => Promise<void>;
 
@@ -362,7 +363,8 @@ export const SupabaseProvider: React.FC<{ children: React.ReactNode }> = ({ chil
     if (!user) throw new Error("로그인이 필요합니다.");
 
     const { data, error } = await supabase.rpc("create_worker_with_account", {
-      worker_data: workerToDb(worker),
+      // resident_number 는 RPC 내부에서 암호화 처리
+      worker_data: { ...workerToDb(worker), resident_number: worker.residentNumber || null },
       initial_password: worker.initialPassword || null,
     });
     if (error) throw new Error(translateRpcError(error.message));
@@ -421,6 +423,15 @@ export const SupabaseProvider: React.FC<{ children: React.ReactNode }> = ({ chil
       .eq("id", id);
     if (error) throw error;
 
+    // 주민등록번호는 암호화 RPC로 별도 저장
+    if (worker.residentNumber !== undefined) {
+      const { error: rpcErr } = await supabase.rpc("set_resident_number", {
+        p_worker_id: id,
+        p_resident_number: worker.residentNumber || "",
+      });
+      if (rpcErr) throw new Error(translateRpcError(rpcErr.message));
+    }
+
     await logHistory({
       category: "worker",
       action: "update",
@@ -430,6 +441,14 @@ export const SupabaseProvider: React.FC<{ children: React.ReactNode }> = ({ chil
     });
     await loadWorkers();
     await loadHistory();
+  };
+
+  const fetchResidentNumber = async (workerId: string): Promise<string> => {
+    const { data, error } = await supabase.rpc("get_resident_number", {
+      p_worker_id: workerId,
+    });
+    if (error) throw new Error(translateRpcError(error.message));
+    return (data as string) || "";
   };
 
   const deleteWorker = async (id: string) => {
@@ -643,6 +662,7 @@ export const SupabaseProvider: React.FC<{ children: React.ReactNode }> = ({ chil
         updateWorker,
         deleteWorker,
         resetWorkerPassword,
+        fetchResidentNumber,
         addHoliday,
         deleteHoliday,
         regenerateSiteCheckinCode,

@@ -33,7 +33,7 @@ const withCurrentOption = (options: string[], currentValue: string) => {
 };
 
 export const WorkerTab: React.FC = () => {
-  const { workers, addWorker, updateWorker, deleteWorker, resetWorkerPassword, settings } = useFirebase();
+  const { workers, addWorker, updateWorker, deleteWorker, resetWorkerPassword, fetchResidentNumber, settings } = useFirebase();
   const [credentialsModal, setCredentialsModal] = useState<{
     title: string;
     worker: { name: string; workerId: string };
@@ -127,19 +127,18 @@ export const WorkerTab: React.FC = () => {
 
     setLoginId("");
     setInitialPassword("");
-    setLanguage("ko");
     setFormError("");
 
     setIsModalOpen(true);
   };
 
-  const handleEdit = (worker: Worker) => {
+  const handleEdit = async (worker: Worker) => {
     setEditingWorker(worker);
     setWorkerId(worker.workerId);
     setName(worker.name);
     setEnglishName(worker.englishName || "");
     setNationality(worker.nationality);
-    setResidentNumber(worker.residentNumber);
+    setResidentNumber(""); // RPC로 별도 로드
     setPhone(worker.phone);
     setAddress(worker.address);
     setEmploymentType(worker.employmentType);
@@ -170,6 +169,13 @@ export const WorkerTab: React.FC = () => {
 
     setFormError("");
     setIsModalOpen(true);
+
+    // 주민등록번호는 암호화 RPC로 별도 조회
+    if (worker.id) {
+      fetchResidentNumber(worker.id)
+        .then((rn) => setResidentNumber(rn))
+        .catch(() => {}); // 조회 실패 시 빈 값 유지
+    }
   };
 
   const addCustomDeduction = () => {
