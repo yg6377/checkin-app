@@ -381,10 +381,10 @@ export const WorkerPortal: React.FC = () => {
   const handleScan = useCallback(async (code: string) => {
     if (!scannerAction) return;
     const action = scannerAction;
-    setScannerAction(null);
-    await submitAttendance(code, action);
+    await submitAttendance(code.trim(), action);
     await loadAttendanceHistory();
     setResultAction(action);
+    setScannerAction(null);
   }, [scannerAction, submitAttendance, loadAttendanceHistory]);
 
   const handleCloseScanner = useCallback(() => {
