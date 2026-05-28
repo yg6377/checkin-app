@@ -82,7 +82,7 @@ export const WorkerTab: React.FC = () => {
   // App login profiles
   const [loginId, setLoginId] = useState("");
   const [initialPassword, setInitialPassword] = useState("");
-  const [language, setLanguage] = useState<"ko" | "en">("ko");
+  const [language] = useState<"ko">("ko");
 
   const [formError, setFormError] = useState("");
 
@@ -167,7 +167,6 @@ export const WorkerTab: React.FC = () => {
 
     setLoginId(worker.loginId);
     setInitialPassword("");
-    setLanguage(worker.language || "ko");
 
     setFormError("");
     setIsModalOpen(true);
@@ -228,7 +227,7 @@ export const WorkerTab: React.FC = () => {
         accountNo,
         holder: holder || name, // defaults to worker's name
       },
-      loginId,
+      loginId: loginId.replace(/-/g, ""),
       initialPassword,
       language,
     };
@@ -342,138 +341,76 @@ export const WorkerTab: React.FC = () => {
           <p className="text-slate-500 text-xs">일치하는 근로자 기록이 없습니다.</p>
         </div>
       ) : (
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-          {filteredWorkers.map((w) => {
-            const allowances = settings?.allowanceDefaults ? {
-              meal: w.salarySettings.allowances.meal !== null ? w.salarySettings.allowances.meal : settings.allowanceDefaults.meal,
-              transport: w.salarySettings.allowances.transport !== null ? w.salarySettings.allowances.transport : settings.allowanceDefaults.transport,
-              phone: w.salarySettings.allowances.phone !== null ? w.salarySettings.allowances.phone : settings.allowanceDefaults.phone,
-            } : { meal: 0, transport: 0, phone: 0 };
+        <div className="bg-white rounded-lg border border-slate-200 overflow-hidden">
+          {/* Table header */}
+          <div className="grid grid-cols-[80px_1fr_110px_130px_120px_110px_auto] gap-x-3 px-4 py-2 bg-slate-50 border-b border-slate-200 text-[10px] font-bold text-slate-400 uppercase tracking-wider">
+            <span>사번</span>
+            <span>이름</span>
+            <span>고용형태</span>
+            <span>부서 / 직위</span>
+            <span>연락처</span>
+            <span>급여 단가</span>
+            <span></span>
+          </div>
+          {filteredWorkers.map((w, idx) => (
+            <div
+              key={w.id || w.workerId}
+              className={`grid grid-cols-[80px_1fr_110px_130px_120px_110px_auto] gap-x-3 px-4 py-3 items-center text-xs transition hover:bg-slate-50 ${idx !== 0 ? "border-t border-slate-100" : ""}`}
+            >
+              {/* 사번 */}
+              <span className="font-mono text-[10px] text-slate-500 font-bold truncate">{w.workerId}</span>
 
-            return (
-              <div
-                key={w.id || w.workerId}
-                className="bg-white rounded-lg border border-slate-200 shadow-2xs hover:border-slate-350 transition overflow-hidden flex flex-col justify-between"
-              >
-                {/* ID Header card */}
-                <div className="p-4 border-b border-slate-100">
-                  <div className="flex items-start justify-between">
-                    <div>
-                      <span className="text-[10px] font-mono font-bold bg-slate-105 text-slate-600 px-2 py-0.5 rounded border border-slate-200">
-                        {w.workerId}
-                      </span>
-                      <h4 className="text-sm font-bold text-slate-950 mt-1.5 flex items-center gap-1">
-                        {w.name}
-                        {w.englishName && (
-                          <span className="text-[11px] text-slate-400 font-normal">({w.englishName})</span>
-                        )}
-                      </h4>
-                    </div>
-
-                    {/* Badge */}
-                    <div>
-                      {w.employmentType === "salary" && (
-                        <span className="text-[10px] px-2 py-0.5 rounded font-bold bg-blue-50 text-blue-700 border border-blue-100">
-                          월급제 (정직원)
-                        </span>
-                      )}
-                      {w.employmentType === "hourly" && (
-                        <span className="text-[10px] px-2 py-0.5 rounded font-bold bg-emerald-50 text-emerald-700 border border-emerald-100">
-                          시급제 (알바)
-                        </span>
-                      )}
-                      {w.employmentType === "daily" && (
-                        <span className="text-[10px] px-2 py-0.5 rounded font-bold bg-orange-50 text-orange-705 border border-orange-100">
-                          일용직 (현장)
-                        </span>
-                      )}
-                      {w.employmentType === "business" && (
-                        <span className="text-[10px] px-2 py-0.5 rounded font-bold bg-purple-50 text-purple-700 border border-purple-100">
-                          사업소득 (3.3%)
-                        </span>
-                      )}
-                    </div>
-                  </div>
-
-                  <p className="text-[11px] text-slate-450 mt-1 flex items-center gap-1 font-medium">
-                    <Briefcase className="w-3 h-3 text-slate-400" />
-                    {w.department || "부서 미지정"} / {w.duty || "직위 없음"}
-                  </p>
-                </div>
-
-                {/* Profile Details */}
-                <div className="p-4 space-y-2 flex-1 text-xs text-slate-650 bg-slate-50/40">
-                  <div className="flex justify-between">
-                    <span className="text-slate-400 flex items-center gap-1 font-medium"><Phone className="w-3 h-3" /> 연락처</span>
-                    <span className="font-mono text-slate-800">{w.phone}</span>
-                  </div>
-                  <div className="flex justify-between">
-                    <span className="text-slate-400 font-medium">국적 / 주민등록</span>
-                    <span className="font-mono text-slate-800">{w.nationality} ({w.residentNumber ? w.residentNumber.substring(0, 8) + "****..." : "없음"})</span>
-                  </div>
-
-                  {/* Wage settings description */}
-                  <div className="pt-1.5 border-t border-slate-100">
-                    <p className="text-[10px] text-slate-400 font-bold mb-1 uppercase tracking-wider font-mono">체결 급여 계약</p>
-                    <div className="bg-white p-2 rounded border border-slate-150">
-                      {w.employmentType === "salary" && (
-                        <div className="flex justify-between font-mono">
-                          <span className="text-slate-500 font-sans">기본제급(월급):</span>
-                          <span className="text-blue-600 font-extrabold">₩{w.salarySettings.monthlyBase.toLocaleString()}</span>
-                        </div>
-                      )}
-                      {w.employmentType === "hourly" && (
-                        <div className="flex justify-between font-mono">
-                          <span className="text-slate-500 font-sans">계약시 단가시급:</span>
-                          <span className="text-emerald-600 font-extrabold">₩{w.salarySettings.hourlyRate.toLocaleString()}/H</span>
-                        </div>
-                      )}
-                      {(w.employmentType === "daily" || w.employmentType === "business") && (
-                        <div className="flex justify-between font-mono">
-                          <span className="text-slate-500 font-sans">체결일당(공수):</span>
-                          <span className="text-orange-600 font-extrabold">₩{w.salarySettings.dailyRate.toLocaleString()}/D</span>
-                        </div>
-                      )}
-                    </div>
-                  </div>
-
-                  {/* Housing or Cash deductions */}
-                  {(w.deductionSettings.housingFee > 0 || w.deductionSettings.cashAdvance > 0) && (
-                    <div className="flex items-center gap-1.5 text-[11px] bg-rose-50 text-rose-700 px-2 py-1 rounded border border-rose-100 font-mono">
-                      <ShieldAlert className="w-3 h-3 shrink-0" />
-                      <span>
-                        {w.deductionSettings.housingFee > 0 ? `숙소공제 ₩${(w.deductionSettings.housingFee).toLocaleString()} ` : ""}
-                        {w.deductionSettings.cashAdvance > 0 ? `선가불 ₩${(w.deductionSettings.cashAdvance).toLocaleString()}` : ""}
-                      </span>
-                    </div>
-                  )}
-
-                  <div className="flex items-center gap-1 text-[11px] text-slate-400 font-mono">
-                    <Building className="w-3 h-3" />
-                    <span>입사체결일: {w.joinDate}</span>
-                  </div>
-                </div>
-
-                {/* Footer Controls */}
-                <div className="p-3 border-t border-slate-100 bg-white flex justify-end gap-2 text-xs">
-                  <button
-                    onClick={() => handleEdit(w)}
-                    className="flex items-center gap-1.5 text-xs px-2.5 py-1.5 font-semibold border border-slate-200 rounded text-slate-700 hover:bg-slate-50 transition cursor-pointer"
-                  >
-                    <Edit2 className="w-3 h-3 text-slate-500" />
-                    수정 / 임금단가
-                  </button>
-                  <button
-                    onClick={() => handleDelete(w.id || w.workerId, w.workerId)}
-                    className="flex items-center gap-1.5 text-xs px-2.5 py-1.5 font-bold text-rose-600 border border-rose-100 rounded bg-rose-50/20 hover:bg-rose-50 transition cursor-pointer"
-                  >
-                    <Trash2 className="w-3 h-3" />
-                    사번 제외
-                  </button>
-                </div>
+              {/* 이름 */}
+              <div className="min-w-0">
+                <span className="font-semibold text-slate-900">{w.name}</span>
+                {w.englishName && (
+                  <span className="text-[11px] text-slate-400 ml-1">({w.englishName})</span>
+                )}
+                {(w.deductionSettings.housingFee > 0 || w.deductionSettings.cashAdvance > 0) && (
+                  <span className="ml-1 inline-flex items-center gap-0.5 text-[9px] text-rose-600 font-bold">
+                    <ShieldAlert className="w-2.5 h-2.5" />공제
+                  </span>
+                )}
               </div>
-            );
-          })}
+
+              {/* 고용형태 */}
+              <div>
+                {w.employmentType === "salary" && <span className="text-[10px] px-1.5 py-0.5 rounded font-bold bg-blue-50 text-blue-700 border border-blue-100">월급제</span>}
+                {w.employmentType === "hourly" && <span className="text-[10px] px-1.5 py-0.5 rounded font-bold bg-emerald-50 text-emerald-700 border border-emerald-100">시급제</span>}
+                {w.employmentType === "daily" && <span className="text-[10px] px-1.5 py-0.5 rounded font-bold bg-orange-50 text-orange-700 border border-orange-100">일용직</span>}
+                {w.employmentType === "business" && <span className="text-[10px] px-1.5 py-0.5 rounded font-bold bg-purple-50 text-purple-700 border border-purple-100">사업소득</span>}
+              </div>
+
+              {/* 부서 / 직위 */}
+              <span className="text-slate-500 truncate">{w.department || "—"} / {w.duty || "—"}</span>
+
+              {/* 연락처 */}
+              <span className="font-mono text-slate-700 truncate">{w.phone}</span>
+
+              {/* 급여 단가 */}
+              <div className="font-mono text-[11px]">
+                {w.employmentType === "salary" && <span className="text-blue-600 font-bold">₩{w.salarySettings.monthlyBase.toLocaleString()}<span className="text-slate-400 font-normal">/월</span></span>}
+                {w.employmentType === "hourly" && <span className="text-emerald-600 font-bold">₩{w.salarySettings.hourlyRate.toLocaleString()}<span className="text-slate-400 font-normal">/H</span></span>}
+                {(w.employmentType === "daily" || w.employmentType === "business") && <span className="text-orange-600 font-bold">₩{w.salarySettings.dailyRate.toLocaleString()}<span className="text-slate-400 font-normal">/D</span></span>}
+              </div>
+
+              {/* 액션 버튼 */}
+              <div className="flex gap-1.5 justify-end">
+                <button
+                  onClick={() => handleEdit(w)}
+                  className="flex items-center gap-1 text-[11px] px-2 py-1 font-semibold border border-slate-200 rounded text-slate-700 hover:bg-slate-100 transition cursor-pointer whitespace-nowrap"
+                >
+                  <Edit2 className="w-3 h-3" />수정
+                </button>
+                <button
+                  onClick={() => handleDelete(w.id || w.workerId, w.workerId)}
+                  className="flex items-center gap-1 text-[11px] px-2 py-1 font-bold text-rose-600 border border-rose-100 rounded bg-rose-50/20 hover:bg-rose-50 transition cursor-pointer whitespace-nowrap"
+                >
+                  <Trash2 className="w-3 h-3" />제외
+                </button>
+              </div>
+            </div>
+          ))}
         </div>
       )}
 
@@ -911,18 +848,18 @@ export const WorkerTab: React.FC = () => {
                   소속 근로자 현장용 모바일 앱 연동 로그인 계정 정보
                 </h4>
 
-                <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                   <div>
-                    <label className="block text-xs font-semibold text-gray-700 mb-1">로그인 로그인 ID *</label>
+                    <label className="block text-xs font-semibold text-gray-700 mb-1">로그인 ID *</label>
                     <input
                       type="text"
-                      placeholder="휴대폰 연락처 또는 고유 계임ID"
+                      placeholder="예: 01034212615"
                       value={loginId}
-                      onChange={(e) => setLoginId(e.target.value)}
+                      onChange={(e) => setLoginId(e.target.value.replace(/-/g, ""))}
                       className="w-full px-3 py-1.5 border border-gray-200 rounded-lg text-sm focus:outline-none"
                       required
                     />
-                    <span className="text-[10px] text-gray-400">전화번호 형태를 권장합니다.</span>
+                    <span className="text-[10px] text-gray-400">하이픈(-) 없이 입력. 예: 01034212615</span>
                   </div>
                   <div>
                     <label className="block text-xs font-medium text-gray-400 mb-1">
@@ -941,17 +878,6 @@ export const WorkerTab: React.FC = () => {
                         근로자에게 별도로 알려주세요 (등록 후 한 번만 표시).
                       </span>
                     )}
-                  </div>
-                  <div>
-                    <label className="block text-xs font-medium text-gray-500 mb-1">앱 선호 인터페이스 언어 (Language)</label>
-                    <select
-                      value={language}
-                      onChange={(e) => setLanguage(e.target.value as any)}
-                      className="w-full px-3 py-1.5 border border-gray-200 rounded-lg text-sm bg-white"
-                    >
-                      <option value="ko">한국어 (Korean)</option>
-                      <option value="en">English (영어)</option>
-                    </select>
                   </div>
                 </div>
               </div>
