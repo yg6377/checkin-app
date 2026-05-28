@@ -83,6 +83,7 @@ const ScannerModal: React.FC<{
   const scannerElementId = useId().replace(/:/g, "-");
   const [status, setStatus] = useState<"idle" | "scanning" | "processing" | "error">("idle");
   const [error, setError] = useState<string>("");
+  const [debug, setDebug] = useState<string>("");
 
   useEffect(() => {
     onScanRef.current = onScan;
@@ -117,13 +118,21 @@ const ScannerModal: React.FC<{
     async function start() {
       if (!containerRef.current) return;
       try {
-        const { Html5Qrcode } = await import("html5-qrcode");
+        const { Html5Qrcode, Html5QrcodeSupportedFormats } = await import("html5-qrcode");
         if (cancelled || !containerRef.current) return;
 
         containerRef.current.innerHTML = "";
-        const scanner = new Html5Qrcode(scannerElementId, { verbose: false });
+        const scanner = new Html5Qrcode(scannerElementId, {
+          verbose: false,
+          // QR 만 대상으로 하면 디코딩이 빠르고 정확해짐
+          formatsToSupport: [Html5QrcodeSupportedFormats.QR_CODE],
+          // 지원 기기(모바일 Chrome 등)에서는 네이티브 BarcodeDetector 사용 →
+          // 순수 JS 디코더보다 인식률이 훨씬 높음 (무반응의 주원인 대응)
+          experimentalFeatures: { useBarCodeDetectorIfSupported: true },
+        });
         scannerRef.current = scanner;
         setStatus("scanning");
+        setDebug("카메라 시작 중…");
 
         await scanner.start(
           { facingMode: "environment" },
@@ -137,6 +146,8 @@ const ScannerModal: React.FC<{
             },
           },
           async (decodedText) => {
+            // 디코딩 성공 콜백 진입 — 이 표시가 뜨면 인식은 정상.
+            setDebug(`디코딩됨(${decodedText.length}자): ${decodedText.slice(0, 24)}`);
             if (cancelled || closingRef.current) return;
             closingRef.current = true;
             setStatus("processing");
@@ -166,11 +177,15 @@ const ScannerModal: React.FC<{
 
         if (cancelled) {
           await stopScannerSafely();
+        } else {
+          // 카메라는 떴는데 이후 이 문구만 계속 보이면 = 디코딩 자체가 안 되는 것.
+          setDebug((d) => (d.startsWith("디코딩") ? d : "카메라 작동 중 · QR을 비춰주세요"));
         }
       } catch (e: any) {
         if (cancelled) return;
         setStatus("error");
         setError(e?.message || t("cameraStartError"));
+        setDebug(`카메라 시작 실패: ${e?.name || ""} ${e?.message || ""}`);
       }
     }
 
@@ -241,6 +256,11 @@ const ScannerModal: React.FC<{
             </div>
           )}
           {status === "idle" && <p className="text-slate-500">{t("cameraChecking")}</p>}
+          {debug && (
+            <p className="mt-2 text-[10px] font-mono text-slate-400 break-all border-t border-slate-100 pt-2">
+              진단: {debug}
+            </p>
+          )}
         </div>
       </div>
     </div>
