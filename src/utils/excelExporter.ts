@@ -78,6 +78,18 @@ function hhmmToMin(s: string): number {
   return h * 60 + m;
 }
 
+function overlapsConfiguredWindow(
+  startMin: number,
+  endMin: number,
+  windowStart: string,
+  windowEnd: string
+): boolean {
+  const rangeStart = hhmmToMin(windowStart);
+  let rangeEnd = hhmmToMin(windowEnd);
+  if (rangeEnd <= rangeStart) rangeEnd += 1440;
+  return overlapMin(startMin, endMin, rangeStart, rangeEnd) > 0;
+}
+
 /**
  * 하루 출퇴근 시각을 기본/연장/휴일/휴일연장/심야 시간으로 분해.
  * - 점심시간이 출퇴근 범위에 포함되면 1시간 차감
@@ -86,6 +98,7 @@ function hhmmToMin(s: string): number {
  * - 심야: 22:00~06:00 범위에 걸친 분량 (별도 표기, 합산에서 빠지지 않음 — 참고용)
  */
 function splitDayHours(
+  worker: Worker,
   checkInISO: string | null,
   checkOutISO: string | null,
   isHoliday: boolean,
@@ -120,6 +133,47 @@ function splitDayHours(
   const netMin = endMin - startMin - lunchOverlap;
   const netHours = Math.max(0, netMin / 60);
   const std = settings.workTime.standardDailyHours;
+
+  const isDailyLike = worker.employmentType === "daily" || worker.employmentType === "business";
+  if (isDailyLike) {
+    const earlyMorningBonus = overlapsConfiguredWindow(
+      startMin,
+      endMin,
+      settings.dailyWorkerRules.earlyMorningStart,
+      settings.dailyWorkerRules.earlyMorningEnd
+    ) ? settings.dailyWorkerRules.earlyMorningWorkDays : 0;
+    const afternoonBonus = overlapsConfiguredWindow(
+      startMin,
+      endMin,
+      settings.dailyWorkerRules.afternoonOvertimeStart,
+      settings.dailyWorkerRules.afternoonOvertimeEnd
+    ) ? settings.dailyWorkerRules.afternoonOvertimeWorkDays : 0;
+    const eveningBonus = overlapsConfiguredWindow(
+      startMin,
+      endMin,
+      settings.dailyWorkerRules.eveningOvertimeStart,
+      settings.dailyWorkerRules.eveningOvertimeEnd
+    ) ? settings.dailyWorkerRules.eveningOvertimeWorkDays : 0;
+    const extraBonus = round2(earlyMorningBonus + afternoonBonus + eveningBonus);
+
+    if (isHoliday) {
+      return {
+        base: 0,
+        overtime: 0,
+        holiday: settings.dailyWorkerRules.holidayRate,
+        holidayOvertime: extraBonus,
+        night: nightHours,
+      };
+    }
+
+    return {
+      base: 1,
+      overtime: extraBonus,
+      holiday: 0,
+      holidayOvertime: 0,
+      night: nightHours,
+    };
+  }
 
   if (isHoliday) {
     return {
@@ -225,7 +279,7 @@ function aggregateMonth(ctx: ExportContext): WorkerMonthAggregate[] {
     for (let d = 1; d <= dim; d++) {
       const isH = holidayByDay.get(d)!;
       const rec = dayMap.get(d);
-      const parts = splitDayHours(rec?.checkInAt || null, rec?.checkOutAt || null, isH, ctx.settings);
+      const parts = splitDayHours(w, rec?.checkInAt || null, rec?.checkOutAt || null, isH, ctx.settings);
       if (rec?.checkInAt) workedDays += 1;
       byDay.set(d, {
         inAt: rec?.checkInAt || null,
@@ -418,7 +472,7 @@ export async function exportLaborLedger(ctx: ExportContext): Promise<void> {
       setCell(ws.getCell(r2, col), day.outAt ? fmtHHMM(day.outAt) : "");
 
       const otOrManDays = isDaily
-        ? (day.inAt ? (day.isHoliday ? ctx.settings.dailyWorkerRules.holidayRate : 1) : 0) // 단순화: 공수 1.0 or 휴일가산
+        ? round2(day.base + day.overtime + day.holiday + day.holidayOvertime)
         : round2(day.overtime + day.holiday + day.holidayOvertime);
       setCell(ws.getCell(r3, col), otOrManDays || "");
 
@@ -455,8 +509,12 @@ export async function exportLaborLedger(ctx: ExportContext): Promise<void> {
       holidayOTPay = a.totalHolidayOvertime * hr * ctx.settings.overtimeRules.holidayOvertimeRate;
       nightPay = a.totalNight * hr * ctx.settings.overtimeRules.nightRate;
     } else {
-      // 일용/사업: 단가 × 공수
-      basePay = a.workedDays * unit;
+      const hourlyEquivalent = unit / ctx.settings.workTime.standardDailyHours;
+      basePay = a.totalBase * unit;
+      overtimePay = a.totalOvertime * unit;
+      holidayPay = a.totalHoliday * unit;
+      holidayOTPay = a.totalHolidayOvertime * unit;
+      nightPay = a.totalNight * hourlyEquivalent * ctx.settings.overtimeRules.nightRate;
     }
 
     // 4대보험 / 세금 (간이)
@@ -617,7 +675,13 @@ function computePaySummary(w: Worker, a: WorkerMonthAggregate, settings: AllSett
     holidayOTPay = a.totalHolidayOvertime * hr * settings.overtimeRules.holidayOvertimeRate;
     nightPay = a.totalNight * hr * settings.overtimeRules.nightRate;
   } else {
-    basePay = a.workedDays * unitRate(w);
+    const unit = unitRate(w);
+    const hourlyEquivalent = unit / settings.workTime.standardDailyHours;
+    basePay = a.totalBase * unit;
+    overtimePay = a.totalOvertime * unit;
+    holidayPay = a.totalHoliday * unit;
+    holidayOTPay = a.totalHolidayOvertime * unit;
+    nightPay = a.totalNight * hourlyEquivalent * settings.overtimeRules.nightRate;
   }
 
   const taxable = basePay + overtimePay + holidayPay + holidayOTPay + nightPay;

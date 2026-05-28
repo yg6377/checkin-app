@@ -2,6 +2,7 @@ import React, { createContext, useContext, useEffect, useState, useCallback } fr
 import type { User } from "@supabase/supabase-js";
 import { supabase } from "../supabase";
 import { AllSettings, Worker, Holiday, SettingsHistory } from "../types";
+import { calculateWorkedHours } from "../utils/attendanceHours";
 import { adminIdToEmail, workerIdToEmail, roleFromEmail, AuthRole } from "../utils/auth";
 
 const LOGIN_MODE_KEY = "checkin-login-mode";
@@ -557,10 +558,11 @@ export const SupabaseProvider: React.FC<{ children: React.ReactNode }> = ({ chil
     }
 
     return (data || []).map((row: any) => {
-      const workHours =
-        row.check_in_at && row.check_out_at
-          ? (new Date(row.check_out_at).getTime() - new Date(row.check_in_at).getTime()) / 3_600_000
-          : 0;
+      const workHours = calculateWorkedHours(
+        row.check_in_at,
+        row.check_out_at,
+        settings?.workTime
+      );
       return {
         id: row.id,
         workerId: row.worker_id,

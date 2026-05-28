@@ -347,9 +347,9 @@ export const WorkerTab: React.FC = () => {
           <p className="text-slate-500 text-xs">일치하는 근로자 기록이 없습니다.</p>
         </div>
       ) : (
-        <div className="bg-white rounded-lg border border-slate-200 overflow-hidden">
+        <div className="bg-white rounded-lg border border-slate-200 overflow-x-auto">
           {/* Table header */}
-          <div className="grid grid-cols-[80px_1fr_110px_130px_120px_110px_auto] gap-x-3 px-4 py-2 bg-slate-50 border-b border-slate-200 text-[10px] font-bold text-slate-400 uppercase tracking-wider">
+          <div className="grid min-w-[860px] grid-cols-[80px_minmax(140px,1fr)_96px_minmax(140px,160px)_120px_110px_112px] gap-x-3 px-4 py-2 bg-slate-50 border-b border-slate-200 text-[10px] font-bold text-slate-400 uppercase tracking-wider">
             <span>사번</span>
             <span>이름</span>
             <span>고용형태</span>
@@ -361,7 +361,7 @@ export const WorkerTab: React.FC = () => {
           {filteredWorkers.map((w, idx) => (
             <div
               key={w.id || w.workerId}
-              className={`grid grid-cols-[80px_1fr_110px_130px_120px_110px_auto] gap-x-3 px-4 py-3 items-center text-xs transition hover:bg-slate-50 ${idx !== 0 ? "border-t border-slate-100" : ""}`}
+              className={`grid min-w-[860px] grid-cols-[80px_minmax(140px,1fr)_96px_minmax(140px,160px)_120px_110px_112px] gap-x-3 px-4 py-3 items-center text-xs transition hover:bg-slate-50 ${idx !== 0 ? "border-t border-slate-100" : ""}`}
             >
               {/* 사번 */}
               <span className="font-mono text-[10px] text-slate-500 font-bold truncate">{w.workerId}</span>
@@ -380,15 +380,15 @@ export const WorkerTab: React.FC = () => {
               </div>
 
               {/* 고용형태 */}
-              <div>
-                {w.employmentType === "salary" && <span className="text-[10px] px-1.5 py-0.5 rounded font-bold bg-blue-50 text-blue-700 border border-blue-100">월급제</span>}
-                {w.employmentType === "hourly" && <span className="text-[10px] px-1.5 py-0.5 rounded font-bold bg-emerald-50 text-emerald-700 border border-emerald-100">시급제</span>}
-                {w.employmentType === "daily" && <span className="text-[10px] px-1.5 py-0.5 rounded font-bold bg-orange-50 text-orange-700 border border-orange-100">일용직</span>}
-                {w.employmentType === "business" && <span className="text-[10px] px-1.5 py-0.5 rounded font-bold bg-purple-50 text-purple-700 border border-purple-100">사업소득</span>}
+              <div className="min-w-0">
+                {w.employmentType === "salary" && <span className="inline-flex w-[62px] justify-center text-[10px] px-1.5 py-0.5 rounded font-bold bg-blue-50 text-blue-700 border border-blue-100">월급제</span>}
+                {w.employmentType === "hourly" && <span className="inline-flex w-[62px] justify-center text-[10px] px-1.5 py-0.5 rounded font-bold bg-emerald-50 text-emerald-700 border border-emerald-100">시급제</span>}
+                {w.employmentType === "daily" && <span className="inline-flex w-[62px] justify-center text-[10px] px-1.5 py-0.5 rounded font-bold bg-orange-50 text-orange-700 border border-orange-100">일용직</span>}
+                {w.employmentType === "business" && <span className="inline-flex w-[62px] justify-center text-[10px] px-1.5 py-0.5 rounded font-bold bg-purple-50 text-purple-700 border border-purple-100">사업소득</span>}
               </div>
 
               {/* 부서 / 직위 */}
-              <span className="text-slate-500 truncate">{w.department || "—"} / {w.duty || "—"}</span>
+              <span className="min-w-0 text-slate-500 truncate">{w.department || "—"} / {w.duty || "—"}</span>
 
               {/* 연락처 */}
               <span className="font-mono text-slate-700 truncate">{w.phone}</span>
@@ -563,13 +563,13 @@ export const WorkerTab: React.FC = () => {
                     </select>
                   </div>
                   <div>
-                    <label className="block text-xs font-medium text-gray-500 mb-1">배정 직무 / 공종</label>
+                    <label className="block text-xs font-medium text-gray-500 mb-1">직급</label>
                     <select
                       value={duty}
                       onChange={(e) => setDuty(e.target.value)}
                       className="w-full px-3 py-1.5 border border-gray-200 rounded-lg text-sm bg-white focus:outline-none focus:ring-1 focus:ring-gray-300"
                     >
-                      <option value="">직무 / 공종 선택</option>
+                      <option value="">직급 선택</option>
                       {dutyOptions.map((option) => (
                         <option key={option} value={option}>
                           {option}
@@ -584,7 +584,7 @@ export const WorkerTab: React.FC = () => {
                       onChange={(e) => setEmploymentType(e.target.value as any)}
                       className="w-full px-3 py-1.5 border border-gray-200 rounded-lg text-sm bg-white focus:outline-none focus:ring-1 focus:ring-gray-300"
                     >
-                      <option value="salary">월급제 (월 고정 급여 - 정직원)</option>
+                      <option value="salary">월급제 (정직원)</option>
                       <option value="hourly">시급제 (산정 기간별 시급지출)</option>
                       <option value="daily">일용직 (현장투입 공수 일당제)</option>
                       <option value="business">사업소득자 (3.3% 원천징수 대상)</option>

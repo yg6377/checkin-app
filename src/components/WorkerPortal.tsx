@@ -56,6 +56,19 @@ function fmtHours(hours: number): string {
 // ============================================================
 // QR 스캐너 모달
 // ============================================================
+// Promise 가 ms 안에 끝나지 않으면 reject 한다.
+// (html5-qrcode 의 stop() hang / 네트워크 행으로 화면이 "처리 중" 에
+//  영구히 갇히는 것을 막는 방어 장치)
+function withTimeout<T>(p: Promise<T>, ms: number, timeoutError?: Error): Promise<T> {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const timeout = new Promise<never>((_, reject) => {
+    timer = setTimeout(() => reject(timeoutError ?? new Error("timeout")), ms);
+  });
+  return Promise.race([p, timeout]).finally(() => {
+    if (timer) clearTimeout(timer);
+  }) as Promise<T>;
+}
+
 const ScannerModal: React.FC<{
   action: "in" | "out";
   onScan: (code: string) => Promise<void>;
@@ -114,14 +127,30 @@ const ScannerModal: React.FC<{
 
         await scanner.start(
           { facingMode: "environment" },
-          { fps: 10, qrbox: { width: 240, height: 240 } },
+          {
+            fps: 10,
+            // 고정 240px 은 작은 화면에서 스캔 영역을 못 잡아
+            // 디코딩이 아예 안 되는 원인이 된다. 뷰포트에 맞춰 동적 계산.
+            qrbox: (viewW: number, viewH: number) => {
+              const edge = Math.max(160, Math.floor(Math.min(viewW, viewH) * 0.7));
+              return { width: edge, height: edge };
+            },
+          },
           async (decodedText) => {
             if (cancelled || closingRef.current) return;
             closingRef.current = true;
             setStatus("processing");
-            await stopScannerSafely();
+
+            // 스캐너 정지는 best-effort — hang/실패해도 무시하고 제출은 진행.
+            await withTimeout(stopScannerSafely(), 3000).catch(() => {});
+
             try {
-              await onScanRef.current(decodedText);
+              // 제출이 멈춰도 화면이 "처리 중" 에 갇히지 않도록 타임아웃.
+              await withTimeout(
+                onScanRef.current(decodedText),
+                15000,
+                new Error(t("processError"))
+              );
             } catch (e: any) {
               closingRef.current = false;
               if (!cancelled) {
@@ -131,7 +160,7 @@ const ScannerModal: React.FC<{
             }
           },
           () => {
-            // 스캔 실패는 무시 (계속 시도)
+            // 스캔 실패(프레임마다)는 무시 — 계속 시도
           }
         );
 

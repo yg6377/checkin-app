@@ -740,7 +740,7 @@ export const SettingsTab: React.FC = () => {
               <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mt-5">
                 <div className="space-y-4">
                   <div>
-                    <label className="block text-xs font-semibold text-gray-500 mb-1">평일 소정외 연장 가산율 (배율) *</label>
+                    <label className="block text-xs font-semibold text-gray-500 mb-1">평일 연장 근로 배율 *</label>
                     <input
                       type="number"
                       step="0.1"
@@ -753,7 +753,7 @@ export const SettingsTab: React.FC = () => {
                   </div>
 
                   <div>
-                    <label className="block text-xs font-semibold text-gray-500 mb-1">휴일 소정내 기본 가산율 (배율) *</label>
+                    <label className="block text-xs font-semibold text-gray-500 mb-1">휴일 근로 기본 배율 *</label>
                     <input
                       type="number"
                       step="0.1"
@@ -765,7 +765,7 @@ export const SettingsTab: React.FC = () => {
                   </div>
 
                   <div>
-                    <label className="block text-xs font-semibold text-gray-500 mb-1">휴일 소정외 연장 할증 지급율 (배율) *</label>
+                    <label className="block text-xs font-semibold text-gray-500 mb-1">휴일 연장 근로 기본 배율 *</label>
                     <input
                       type="number"
                       step="0.1"
@@ -802,7 +802,7 @@ export const SettingsTab: React.FC = () => {
                   </div>
 
                   <div>
-                    <label className="block text-xs font-semibold text-gray-400 mb-1">야간 근로 심야 가산율 (기본 +추가배율) *</label>
+                    <label className="block text-xs font-semibold text-gray-400 mb-1">야간 근로 심야 배율 *</label>
                     <input
                       type="number"
                       step="0.1"
