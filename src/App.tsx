@@ -241,6 +241,9 @@ const AdminPortal: React.FC = () => {
                 <span className="text-[10px] font-semibold text-emerald-400 bg-emerald-950/40 px-1.5 py-0.5 rounded border border-emerald-800 flex items-center gap-1">
                   <ShieldCheck className="w-3.5 h-3.5" /> SUPABASE RLS
                 </span>
+                <span className="text-[10px] font-mono font-semibold text-slate-400 bg-slate-800 px-1.5 py-0.5 rounded border border-slate-700">
+                  v{__APP_VERSION__}
+                </span>
               </div>
               <h2 className="text-sm font-extrabold tracking-tight text-white mt-0.5">
                 현장 노무 & 급여 정책 관리 시스템 (Workforce Core v4.2)

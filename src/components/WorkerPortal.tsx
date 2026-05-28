@@ -386,6 +386,7 @@ export const WorkerPortal: React.FC = () => {
             <div>
               <p className="text-[10px] font-mono text-slate-400">
                 {activeView === "home" ? t("workerMode") : t("attendanceHistory")}
+                <span className="ml-1.5 text-slate-300">v{__APP_VERSION__}</span>
               </p>
               <p className="text-sm font-bold text-slate-900">
                 {activeView === "home" ? me?.name || user?.email : t("myAttendanceRecords")}
