@@ -8,6 +8,9 @@ export interface WorkTimeSettings {
   standardWeeklyHours: number; // e.g., 40
   hourlyOrdinaryWageRate: number; // e.g., 10320
   hourlyOrdinaryMonthlyHours: number; // e.g., 209
+  departments?: string[];
+  ranks?: string[];
+  jobs?: string[];
 }
 
 export interface OvertimeRulesSettings {
@@ -90,6 +93,7 @@ export interface Worker {
   retireDate: string | null;
   duty: string;
   department: string;
+  job: string;
   salarySettings: {
     monthlyBase: number;
     hourlyRate: number;

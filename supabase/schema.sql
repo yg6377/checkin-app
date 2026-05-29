@@ -91,6 +91,7 @@ create table workers (
   retire_date         date,
   duty                text,
   department          text,
+  job                 text,
 
   -- 임금 단가
   monthly_base        numeric(12, 0) not null default 0,
@@ -123,6 +124,7 @@ create table workers (
 
 create index workers_employment_type_idx on workers(employment_type);
 create index workers_department_idx       on workers(department);
+create index workers_job_idx              on workers(job);
 create index workers_retire_date_idx      on workers(retire_date) where retire_date is null;
 
 -- profiles → workers FK 지연 연결

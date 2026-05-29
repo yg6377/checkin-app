@@ -1,4 +1,5 @@
 import { AllSettings, Worker, Holiday } from "../types";
+import { DEFAULT_DEPARTMENT_OPTIONS, DEFAULT_JOB_OPTIONS, DEFAULT_RANK_OPTIONS } from "../constants/workerOptions";
 
 export const DEFAULT_SETTINGS: AllSettings = {
   workTime: {
@@ -11,6 +12,9 @@ export const DEFAULT_SETTINGS: AllSettings = {
     standardWeeklyHours: 40,
     hourlyOrdinaryWageRate: 10320,
     hourlyOrdinaryMonthlyHours: 209,
+    departments: DEFAULT_DEPARTMENT_OPTIONS,
+    ranks: DEFAULT_RANK_OPTIONS,
+    jobs: DEFAULT_JOB_OPTIONS,
   },
   overtimeRules: {
     weekdayOvertimeRate: 1.5,
@@ -131,7 +135,8 @@ export const MOCK_WORKERS: Worker[] = [
     joinDate: "2026-01-10",
     retireDate: null,
     duty: "과장",
-    department: "관리본부",
+    department: "관리부",
+    job: "관리",
     salarySettings: {
       monthlyBase: 4500000,
       hourlyRate: 15000,
@@ -168,8 +173,9 @@ export const MOCK_WORKERS: Worker[] = [
     contractDate: "2026-02-15",
     joinDate: "2026-03-01",
     retireDate: null,
-    duty: "기사",
-    department: "현장시공팀",
+    duty: "주임",
+    department: "생산부",
+    job: "취부",
     salarySettings: {
       monthlyBase: 0,
       hourlyRate: 18000,
@@ -206,8 +212,9 @@ export const MOCK_WORKERS: Worker[] = [
     contractDate: "2026-04-10",
     joinDate: "2026-04-15",
     retireDate: null,
-    duty: "반장",
-    department: "골조공사팀",
+    duty: "팀장",
+    department: "생산부",
+    job: "절단",
     salarySettings: {
       monthlyBase: 0,
       hourlyRate: 0,
@@ -244,8 +251,9 @@ export const MOCK_WORKERS: Worker[] = [
     contractDate: "2026-05-01",
     joinDate: "2026-05-10",
     retireDate: null,
-    duty: "용접공",
-    department: "특수시공팀",
+    duty: "대리",
+    department: "생산부",
+    job: "용접",
     salarySettings: {
       monthlyBase: 0,
       hourlyRate: 0,

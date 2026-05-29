@@ -1,6 +1,7 @@
 import React, { useState } from "react";
 import { useApp as useFirebase } from "../context/SupabaseContext";
 import { AllSettings, Holiday } from "../types";
+import { DEFAULT_DEPARTMENT_OPTIONS, DEFAULT_JOB_OPTIONS, DEFAULT_RANK_OPTIONS } from "../constants/workerOptions";
 import {
   Settings,
   Building,
@@ -86,6 +87,9 @@ export const SettingsTab: React.FC = () => {
   // Holiday forms
   const [newHolidayDate, setNewHolidayDate] = useState("");
   const [newHolidayName, setNewHolidayName] = useState("");
+  const [newDepartmentOption, setNewDepartmentOption] = useState("");
+  const [newRankOption, setNewRankOption] = useState("");
+  const [newJobOption, setNewJobOption] = useState("");
 
   // Map settings
   const [mapWidth] = useState(500);
@@ -148,6 +152,101 @@ export const SettingsTab: React.FC = () => {
     };
     updateSetting("workTime", updated);
     alert("시공 근무 기획 일과 설정이 성공적으로 저장되었습니다.");
+  };
+
+  const getWorkOptionList = (key: "departments" | "ranks" | "jobs", fallback: string[]) => {
+    const values = settings.workTime[key];
+    return values?.length ? values : fallback;
+  };
+
+  const updateWorkOptionList = (key: "departments" | "ranks" | "jobs", next: string[]) => {
+    updateSetting("workTime", {
+      ...settings.workTime,
+      [key]: next,
+    });
+  };
+
+  const addWorkOption = (
+    key: "departments" | "ranks" | "jobs",
+    fallback: string[],
+    value: string,
+    clear: (value: string) => void
+  ) => {
+    const trimmed = value.trim();
+    if (!trimmed) return;
+    const current = getWorkOptionList(key, fallback);
+    if (current.includes(trimmed)) {
+      clear("");
+      return;
+    }
+    updateWorkOptionList(key, [...current, trimmed]);
+    clear("");
+  };
+
+  const removeWorkOption = (key: "departments" | "ranks" | "jobs", fallback: string[], value: string) => {
+    const current = getWorkOptionList(key, fallback);
+    if (!window.confirm(`${value} 옵션을 삭제할까요? 기존 근로자에게 저장된 값은 유지됩니다.`)) return;
+    updateWorkOptionList(key, current.filter((item) => item !== value));
+  };
+
+  const renderWorkOptionEditor = (
+    title: string,
+    key: "departments" | "ranks" | "jobs",
+    fallback: string[],
+    value: string,
+    setValue: (next: string) => void,
+    placeholder: string
+  ) => {
+    const options = getWorkOptionList(key, fallback);
+
+    return (
+      <div className="rounded-lg border border-gray-200 bg-white p-4 space-y-3">
+        <div className="flex items-center justify-between gap-3">
+          <h4 className="text-sm font-bold text-gray-900">{title}</h4>
+          <span className="text-[11px] font-mono text-gray-400">{options.length}개</span>
+        </div>
+        <div className="flex flex-wrap gap-2">
+          {options.map((option) => (
+            <span
+              key={option}
+              className="inline-flex items-center gap-1.5 rounded border border-slate-200 bg-slate-50 px-2 py-1 text-xs font-semibold text-slate-700"
+            >
+              {option}
+              <button
+                type="button"
+                onClick={() => removeWorkOption(key, fallback, option)}
+                className="text-slate-400 hover:text-rose-600"
+                title={`${option} 삭제`}
+              >
+                <Trash2 className="w-3 h-3" />
+              </button>
+            </span>
+          ))}
+        </div>
+        <div className="flex gap-2">
+          <input
+            type="text"
+            value={value}
+            onChange={(e) => setValue(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === "Enter") {
+                e.preventDefault();
+                addWorkOption(key, fallback, value, setValue);
+              }
+            }}
+            placeholder={placeholder}
+            className="min-w-0 flex-1 px-3 py-1.5 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-1 focus:ring-gray-300"
+          />
+          <button
+            type="button"
+            onClick={() => addWorkOption(key, fallback, value, setValue)}
+            className="inline-flex items-center gap-1.5 rounded-lg bg-gray-900 px-3 py-1.5 text-xs font-semibold text-white hover:bg-gray-800"
+          >
+            <Plus className="w-3.5 h-3.5" /> 추가
+          </button>
+        </div>
+      </div>
+    );
   };
 
   const saveOrdinaryWage = (e: React.FormEvent<HTMLFormElement>) => {
@@ -720,6 +819,42 @@ export const SettingsTab: React.FC = () => {
                 >
                   <Save className="w-4 h-4" /> 일과 시간 보정안 저장
                 </button>
+              </div>
+            </div>
+
+            <div className="space-y-3">
+              <div>
+                <h3 className="text-base font-bold text-gray-900 flex items-center gap-2">
+                  <Layers className="w-4 h-4 text-gray-500" />
+                  근로자 분류 옵션
+                </h3>
+                <p className="text-xs text-gray-400 mt-1">근로자 등록 화면에서 선택하는 소속부서/팀, 직급, 직무 목록입니다.</p>
+              </div>
+              <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
+                {renderWorkOptionEditor(
+                  "소속부서/팀",
+                  "departments",
+                  DEFAULT_DEPARTMENT_OPTIONS,
+                  newDepartmentOption,
+                  setNewDepartmentOption,
+                  "예: 품질부"
+                )}
+                {renderWorkOptionEditor(
+                  "직급",
+                  "ranks",
+                  DEFAULT_RANK_OPTIONS,
+                  newRankOption,
+                  setNewRankOption,
+                  "예: 선임"
+                )}
+                {renderWorkOptionEditor(
+                  "직무",
+                  "jobs",
+                  DEFAULT_JOB_OPTIONS,
+                  newJobOption,
+                  setNewJobOption,
+                  "예: 검사"
+                )}
               </div>
             </div>
           </form>

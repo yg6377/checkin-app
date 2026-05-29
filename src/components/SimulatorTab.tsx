@@ -116,7 +116,7 @@ export const SimulatorTab: React.FC = () => {
           >
             {workers.map((w) => (
               <option key={w.id || w.workerId} value={w.id || w.workerId}>
-                [{w.workerId}] {w.name} - {w.duty} (
+                [{w.workerId}] {w.name} - {w.duty}{w.job ? ` / ${w.job}` : ""} (
                 {w.employmentType === "salary" ? "월급제" :
                  w.employmentType === "hourly" ? "시급제" :
                  w.employmentType === "daily" ? "일용직" : "사업소득(3.3%)"}

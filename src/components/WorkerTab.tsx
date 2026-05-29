@@ -1,36 +1,8 @@
 import React, { useState } from "react";
 import { useApp as useFirebase, WorkerCredentials } from "../context/SupabaseContext";
 import { Worker } from "../types";
+import { DEFAULT_DEPARTMENT_OPTIONS, DEFAULT_JOB_OPTIONS, DEFAULT_RANK_OPTIONS, withCurrentOption } from "../constants/workerOptions";
 import { Search, UserPlus, UserCheck, ShieldAlert, CreditCard, Building, Phone, Briefcase, Trash2, Edit2, X, AlertCircle, KeyRound, Copy, Check } from "lucide-react";
-
-const DEPARTMENT_OPTIONS = [
-  "관리본부",
-  "현장시공팀",
-  "골조공사팀",
-  "설비기공팀",
-  "특수시공팀",
-  "안전관리반",
-  "품질관리팀",
-  "전기공사팀",
-];
-
-const DUTY_OPTIONS = [
-  "사원",
-  "기사",
-  "과장",
-  "반장",
-  "목수",
-  "철근공",
-  "용접공",
-  "설비공",
-  "전기공",
-  "안전관리자",
-];
-
-const withCurrentOption = (options: string[], currentValue: string) => {
-  if (!currentValue || options.includes(currentValue)) return options;
-  return [currentValue, ...options];
-};
 
 export const WorkerTab: React.FC = () => {
   const { workers, addWorker, updateWorker, deleteWorker, resetWorkerPassword, fetchResidentNumber, settings } = useFirebase();
@@ -58,6 +30,7 @@ export const WorkerTab: React.FC = () => {
   const [retireDate, setRetireDate] = useState("");
   const [duty, setDuty] = useState("");
   const [department, setDepartment] = useState("");
+  const [job, setJob] = useState("");
 
   // Pay settings
   const [monthlyBase, setMonthlyBase] = useState("");
@@ -105,8 +78,9 @@ export const WorkerTab: React.FC = () => {
     setContractDate(new Date().toISOString().split("T")[0]);
     setJoinDate(new Date().toISOString().split("T")[0]);
     setRetireDate("");
-    setDuty("사원");
-    setDepartment("현장시공팀");
+    setDuty(rankBaseOptions[0] || "");
+    setDepartment(departmentBaseOptions[0] || "");
+    setJob(jobBaseOptions[0] || "");
 
     setMonthlyBase("3000000");
     setHourlyRate("12000");
@@ -147,6 +121,7 @@ export const WorkerTab: React.FC = () => {
     setRetireDate(worker.retireDate || "");
     setDuty(worker.duty);
     setDepartment(worker.department);
+    setJob(worker.job || "");
 
     setMonthlyBase(String(worker.salarySettings.monthlyBase));
     setHourlyRate(String(worker.salarySettings.hourlyRate));
@@ -213,6 +188,7 @@ export const WorkerTab: React.FC = () => {
       retireDate: retireDate ? retireDate : null,
       duty,
       department,
+      job,
       salarySettings: {
         monthlyBase: Number(monthlyBase) || 0,
         hourlyRate: Number(hourlyRate) || 0,
@@ -288,14 +264,20 @@ export const WorkerTab: React.FC = () => {
       w.name.toLowerCase().includes(s) ||
       w.workerId.toLowerCase().includes(s) ||
       w.phone.includes(s) ||
-      (w.department && w.department.toLowerCase().includes(s));
+      (w.department && w.department.toLowerCase().includes(s)) ||
+      (w.duty && w.duty.toLowerCase().includes(s)) ||
+      (w.job && w.job.toLowerCase().includes(s));
     
     if (typeFilter === "all") return matchText;
     return matchText && w.employmentType === typeFilter;
   });
 
-  const departmentOptions = withCurrentOption(DEPARTMENT_OPTIONS, department);
-  const dutyOptions = withCurrentOption(DUTY_OPTIONS, duty);
+  const departmentBaseOptions = settings?.workTime?.departments?.length ? settings.workTime.departments : DEFAULT_DEPARTMENT_OPTIONS;
+  const rankBaseOptions = settings?.workTime?.ranks?.length ? settings.workTime.ranks : DEFAULT_RANK_OPTIONS;
+  const jobBaseOptions = settings?.workTime?.jobs?.length ? settings.workTime.jobs : DEFAULT_JOB_OPTIONS;
+  const departmentOptions = withCurrentOption(departmentBaseOptions, department);
+  const dutyOptions = withCurrentOption(rankBaseOptions, duty);
+  const jobOptions = withCurrentOption(jobBaseOptions, job);
 
   return (
     <div id="worker-tab-container" className="space-y-4">
@@ -310,7 +292,7 @@ export const WorkerTab: React.FC = () => {
             </span>
             <input
               type="text"
-              placeholder="이름, 사번, 연락처, 부서 검색..."
+              placeholder="이름, 사번, 연락처, 부서, 직급, 직무 검색..."
               value={searchTerm}
               onChange={(e) => setSearchTerm(e.target.value)}
               className="w-full pl-9 pr-3 py-1.5 border border-slate-250 bg-white rounded text-xs focus:outline-none focus:border-blue-500 font-mono text-slate-800 focus:ring-1 focus:ring-blue-500 shadow-2xs"
@@ -349,11 +331,11 @@ export const WorkerTab: React.FC = () => {
       ) : (
         <div className="bg-white rounded-lg border border-slate-200 overflow-x-auto">
           {/* Table header */}
-          <div className="grid min-w-[860px] grid-cols-[80px_minmax(140px,1fr)_96px_minmax(140px,160px)_120px_110px_112px] gap-x-3 px-4 py-2 bg-slate-50 border-b border-slate-200 text-[10px] font-bold text-slate-400 uppercase tracking-wider">
+          <div className="grid min-w-[980px] grid-cols-[80px_minmax(140px,1fr)_96px_minmax(190px,230px)_120px_110px_112px] gap-x-3 px-4 py-2 bg-slate-50 border-b border-slate-200 text-[10px] font-bold text-slate-400 uppercase tracking-wider">
             <span>사번</span>
             <span>이름</span>
             <span>고용형태</span>
-            <span>부서 / 직위</span>
+            <span>부서 / 직급 / 직무</span>
             <span>연락처</span>
             <span>급여 단가</span>
             <span></span>
@@ -361,7 +343,7 @@ export const WorkerTab: React.FC = () => {
           {filteredWorkers.map((w, idx) => (
             <div
               key={w.id || w.workerId}
-              className={`grid min-w-[860px] grid-cols-[80px_minmax(140px,1fr)_96px_minmax(140px,160px)_120px_110px_112px] gap-x-3 px-4 py-3 items-center text-xs transition hover:bg-slate-50 ${idx !== 0 ? "border-t border-slate-100" : ""}`}
+              className={`grid min-w-[980px] grid-cols-[80px_minmax(140px,1fr)_96px_minmax(190px,230px)_120px_110px_112px] gap-x-3 px-4 py-3 items-center text-xs transition hover:bg-slate-50 ${idx !== 0 ? "border-t border-slate-100" : ""}`}
             >
               {/* 사번 */}
               <span className="font-mono text-[10px] text-slate-500 font-bold truncate">{w.workerId}</span>
@@ -387,8 +369,8 @@ export const WorkerTab: React.FC = () => {
                 {w.employmentType === "business" && <span className="inline-flex w-[62px] justify-center text-[10px] px-1.5 py-0.5 rounded font-bold bg-purple-50 text-purple-700 border border-purple-100">사업소득</span>}
               </div>
 
-              {/* 부서 / 직위 */}
-              <span className="min-w-0 text-slate-500 truncate">{w.department || "—"} / {w.duty || "—"}</span>
+              {/* 부서 / 직급 / 직무 */}
+              <span className="min-w-0 text-slate-500 truncate">{w.department || "—"} / {w.duty || "—"} / {w.job || "—"}</span>
 
               {/* 연락처 */}
               <span className="font-mono text-slate-700 truncate">{w.phone}</span>
@@ -459,7 +441,7 @@ export const WorkerTab: React.FC = () => {
                   근로자 기본 인적사항 및 신원 검격 (Required)
                 </h4>
                 
-                <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
                   <div>
                     <label className="block text-xs font-medium text-gray-500 mb-1">사원번호 (관리코드) *</label>
                     <input
@@ -571,6 +553,21 @@ export const WorkerTab: React.FC = () => {
                     >
                       <option value="">직급 선택</option>
                       {dutyOptions.map((option) => (
+                        <option key={option} value={option}>
+                          {option}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                  <div>
+                    <label className="block text-xs font-medium text-gray-500 mb-1">직무</label>
+                    <select
+                      value={job}
+                      onChange={(e) => setJob(e.target.value)}
+                      className="w-full px-3 py-1.5 border border-gray-200 rounded-lg text-sm bg-white focus:outline-none focus:ring-1 focus:ring-gray-300"
+                    >
+                      <option value="">직무 선택</option>
+                      {jobOptions.map((option) => (
                         <option key={option} value={option}>
                           {option}
                         </option>

@@ -346,10 +346,10 @@ export async function exportLaborLedger(ctx: ExportContext): Promise<void> {
   payInfo.font = { bold: true };
 
   // ── 헤더 (3행, 4행)
-  // 기본 정보: A=NO, B=사번, C=이름, D=영문이름, E=고용형태, F=주민번호, G=입사일, H=퇴사일, I=계좌, J=연락처, K=주소, L=직무, M=구분
+  // 기본 정보: A=NO, B=사번, C=이름, D=영문이름, E=고용형태, F=주민번호, G=입사일, H=퇴사일, I=계좌, J=연락처, K=주소, L=직급, M=구분
   const fixedHeaders = [
     "NO", "사번", "이름", "영문이름", "고용형태", "주민등록번호", "입사일", "퇴사일",
-    "계좌번호", "연락처", "주소", "직무", "구분",
+    "계좌번호", "연락처", "주소", "직급", "구분",
   ];
   for (let i = 0; i < fixedHeaders.length; i++) {
     ws.mergeCells(3, i + 1, 4, i + 1);
@@ -630,7 +630,7 @@ export async function exportLaborLedger(ctx: ExportContext): Promise<void> {
   ws.getColumn(9).width = 22;  // 계좌
   ws.getColumn(10).width = 14; // 연락
   ws.getColumn(11).width = 22; // 주소
-  ws.getColumn(12).width = 10; // 직무
+  ws.getColumn(12).width = 10; // 직급
   ws.getColumn(13).width = 6;  // 구분
 
   const buf = await wb.xlsx.writeBuffer();
@@ -1008,6 +1008,7 @@ export async function exportAttendanceBook(ctx: ExportContext): Promise<void> {
     { label: "부서명", pick: (w) => w.department },
     { label: "성명", pick: (w) => w.name },
     { label: "직급", pick: (w) => w.duty },
+    { label: "직무", pick: (w) => w.job },
     { label: "예금주", pick: (w) => w.bankSettings?.holder || "" },
     { label: "계좌번호", pick: (w) => w.bankSettings?.accountNo || "" },
     { label: "기본 시급", pick: (w) => w.salarySettings.hourlyRate },

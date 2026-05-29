@@ -38,19 +38,8 @@ function ymd(d: Date): string {
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
 }
 
-function fmtWorkDate(dateStr: string, locale: string): string {
-  const [year, month, day] = dateStr.split("-").map(Number);
-  const date = new Date(year, (month || 1) - 1, day || 1);
-  const formattedDate = `${year}.${String(month).padStart(2, "0")}.${String(day).padStart(2, "0")}`;
-  const weekday = new Intl.DateTimeFormat(locale, { weekday: "short" }).format(date);
-  return `${formattedDate} (${weekday})`;
-}
-
-function fmtHours(hours: number): string {
-  if (hours <= 0) return "-";
-  const wholeHours = Math.floor(hours);
-  const minutes = Math.round((hours - wholeHours) * 60);
-  return `${wholeHours}:${String(minutes).padStart(2, "0")}`;
+function monthStart(d: Date): string {
+  return ymd(new Date(d.getFullYear(), d.getMonth(), 1));
 }
 
 // ============================================================
@@ -330,12 +319,6 @@ export const WorkerPortal: React.FC = () => {
   // 본인 worker 정보 (workers 배열에서 본인만 RLS 로 보임)
   const me = workers[0];
   const locale = languageToLocale[language];
-  const formatHourSummary = useCallback((hours: number) => {
-    if (hours <= 0) return "-";
-    const wholeHours = Math.floor(hours);
-    const minutes = Math.round((hours - wholeHours) * 60);
-    return `${wholeHours} ${t("hourUnit")} ${minutes} ${t("minuteUnit")}`;
-  }, [t]);
 
   // 1초마다 현재 시각 갱신
   useEffect(() => {
@@ -358,7 +341,7 @@ export const WorkerPortal: React.FC = () => {
     setRecordsError("");
     try {
       const records = await fetchAttendance({
-        fromDate: me.joinDate || "2000-01-01",
+        fromDate: monthStart(new Date()),
         toDate: ymd(new Date()),
         workerId: me.id,
       });
@@ -392,7 +375,6 @@ export const WorkerPortal: React.FC = () => {
   }, []);
 
   const totalWorkDays = attendanceHistory.filter((r) => r.checkInAt).length;
-  const totalWorkHours = attendanceHistory.reduce((sum, r) => sum + r.workHours, 0);
   const missingCheckoutCount = attendanceHistory.filter((r) => r.checkInAt && !r.checkOutAt).length;
 
   return (
@@ -543,14 +525,10 @@ export const WorkerPortal: React.FC = () => {
                 </button>
               </div>
 
-              <div className="grid grid-cols-3 gap-2">
+              <div className="grid grid-cols-2 gap-2">
                 <div className="rounded-xl border border-slate-200 bg-slate-50 p-3">
                   <p className="text-[10px] font-bold text-slate-500 uppercase">{t("totalDays")}</p>
                   <p className="mt-1 text-lg font-black text-slate-900">{totalWorkDays} {t("dayUnit")}</p>
-                </div>
-                <div className="rounded-xl border border-slate-200 bg-slate-50 p-3">
-                  <p className="text-[10px] font-bold text-slate-500 uppercase">{t("totalHours")}</p>
-                  <p className="mt-1 text-lg font-black text-slate-900">{formatHourSummary(totalWorkHours)}</p>
                 </div>
                 <div className="rounded-xl border border-slate-200 bg-slate-50 p-3">
                   <p className="text-[10px] font-bold text-slate-500 uppercase">{t("missingCheckout")}</p>
@@ -571,39 +549,6 @@ export const WorkerPortal: React.FC = () => {
               <div className="flex items-start gap-2 p-3 bg-rose-50 border border-rose-200 rounded-xl text-rose-700">
                 <AlertCircle className="w-4 h-4 shrink-0 mt-0.5" />
                 <p className="text-[11px] leading-relaxed">{recordsError}</p>
-              </div>
-            )}
-
-            {!recordsLoading && !recordsError && attendanceHistory.length === 0 && (
-              <div className="rounded-xl border border-dashed border-slate-300 bg-slate-50 px-4 py-6 text-center text-sm text-slate-500">
-                {t("noHistory")}
-              </div>
-            )}
-
-            {!recordsLoading && !recordsError && attendanceHistory.length > 0 && (
-              <div className="space-y-2">
-                {attendanceHistory.map((record) => {
-                  const incomplete = record.checkInAt && !record.checkOutAt;
-                  return (
-                    <div
-                      key={record.id}
-                      className="rounded-xl border border-slate-200 bg-white px-4 py-3 flex items-center justify-between gap-3"
-                    >
-                      <div className="min-w-0">
-                        <p className="text-sm font-bold text-slate-900">{fmtWorkDate(record.workDate, locale)}</p>
-                        <div className="mt-1 flex items-center gap-3 text-[11px] text-slate-500 font-mono">
-                          <span>{t("checkIn")} {fmtTime(record.checkInAt)}</span>
-                          <span>{t("checkOut")} {fmtTime(record.checkOutAt)}</span>
-                        </div>
-                      </div>
-                      <div className="text-right shrink-0">
-                        <p className={`text-xs font-bold ${incomplete ? "text-rose-600" : "text-slate-700"}`}>
-                          {incomplete ? t("checkoutMissing") : formatHourSummary(record.workHours)}
-                        </p>
-                      </div>
-                    </div>
-                  );
-                })}
               </div>
             )}
           </>

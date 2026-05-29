@@ -29,6 +29,7 @@ function dbToWorker(row: any): Worker {
     retireDate: row.retire_date,
     duty: row.duty || "",
     department: row.department || "",
+    job: row.job || "",
     salarySettings: {
       monthlyBase: Number(row.monthly_base) || 0,
       hourlyRate: Number(row.hourly_rate) || 0,
@@ -70,6 +71,7 @@ function workerToDb(w: Worker | Omit<Worker, "id">) {
     retire_date: w.retireDate,
     duty: w.duty || null,
     department: w.department || null,
+    job: w.job || null,
     monthly_base: w.salarySettings.monthlyBase,
     hourly_rate: w.salarySettings.hourlyRate,
     daily_rate: w.salarySettings.dailyRate,
@@ -140,6 +142,7 @@ interface AppContextType {
   // 근태 조회
   fetchAttendance: (q: AttendanceQuery) => Promise<AttendanceRecord[]>;
   upsertAttendanceByAdmin: (input: AdminAttendanceInput) => Promise<void>;
+  deleteAttendanceByAdmin: (record: AttendanceRecord) => Promise<void>;
 }
 
 export interface WorkerCredentials {
@@ -612,6 +615,35 @@ export const SupabaseProvider: React.FC<{ children: React.ReactNode }> = ({ chil
     await loadHistory();
   };
 
+  const deleteAttendanceByAdmin = async (record: AttendanceRecord) => {
+    if (!user) throw new Error("로그인이 필요합니다.");
+    if (role !== "admin") throw new Error("관리자 권한이 필요합니다.");
+
+    const { error } = await supabase
+      .from("attendance")
+      .delete()
+      .eq("id", record.id);
+    if (error) throw new Error(translateRpcError(error.message));
+
+    await logHistory({
+      category: "attendance",
+      action: "delete",
+      label: `관리자 출퇴근 삭제: ${record.workDate} [${record.workerName || record.workerCode}]`,
+      fromValue: {
+        id: record.id,
+        workerId: record.workerId,
+        workerCode: record.workerCode,
+        workerName: record.workerName,
+        workDate: record.workDate,
+        checkInAt: record.checkInAt,
+        checkOutAt: record.checkOutAt,
+        status: record.status,
+      },
+      toValue: {},
+    });
+    await loadHistory();
+  };
+
   // ─── Holidays ──────────────────────────────────────────
   const addHoliday = async (holiday: Omit<Holiday, "id">) => {
     if (!user) return;
@@ -672,6 +704,7 @@ export const SupabaseProvider: React.FC<{ children: React.ReactNode }> = ({ chil
         refreshTodayAttendance,
         fetchAttendance,
         upsertAttendanceByAdmin,
+        deleteAttendanceByAdmin,
       }}
     >
       {children}

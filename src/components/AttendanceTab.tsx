@@ -15,6 +15,7 @@ import {
   Download,
   Pencil,
   Plus,
+  Trash2,
   X,
 } from "lucide-react";
 import { exportLaborLedger, exportAttendanceBook, exportPayslips } from "../utils/excelExporter";
@@ -57,7 +58,7 @@ type Preset = "thisMonth" | "lastMonth" | "last7" | "custom";
 // AttendanceTab
 // ============================================================
 export const AttendanceTab: React.FC = () => {
-  const { workers, fetchAttendance, settings, holidays, role, upsertAttendanceByAdmin } = useApp();
+  const { workers, fetchAttendance, settings, holidays, role, upsertAttendanceByAdmin, deleteAttendanceByAdmin } = useApp();
   const [exporting, setExporting] = useState<"" | "ledger" | "book" | "payslip">("");
   const [exportError, setExportError] = useState("");
 
@@ -198,6 +199,23 @@ export const AttendanceTab: React.FC = () => {
       setManualError(err?.message || "수동 출퇴근 저장 중 오류가 발생했습니다.");
     } finally {
       setManualSaving(false);
+    }
+  };
+
+  const handleDeleteRecord = async (record: AttendanceRecord) => {
+    if (!window.confirm(`${record.workDate} ${record.workerName || record.workerCode} 근태 기록을 삭제할까요?\n삭제 후에는 복구할 수 없습니다.`)) {
+      return;
+    }
+
+    setLoading(true);
+    setError("");
+    try {
+      await deleteAttendanceByAdmin(record);
+      await runQuery();
+    } catch (err: any) {
+      setError(err?.message || "근태 기록 삭제 중 오류가 발생했습니다.");
+    } finally {
+      setLoading(false);
     }
   };
 
@@ -535,13 +553,22 @@ export const AttendanceTab: React.FC = () => {
                     </Td>
                     {role === "admin" && (
                       <Td className="text-center">
-                        <button
-                          onClick={() => openManualModal(r)}
-                          className="inline-flex items-center gap-1 px-2 py-1 text-[10px] font-semibold rounded border border-slate-200 bg-white text-slate-700 hover:bg-slate-50"
-                        >
-                          <Pencil className="w-3 h-3" />
-                          수정
-                        </button>
+                        <div className="inline-flex items-center justify-center gap-1">
+                          <button
+                            onClick={() => openManualModal(r)}
+                            className="inline-flex items-center gap-1 px-2 py-1 text-[10px] font-semibold rounded border border-slate-200 bg-white text-slate-700 hover:bg-slate-50"
+                          >
+                            <Pencil className="w-3 h-3" />
+                            수정
+                          </button>
+                          <button
+                            onClick={() => void handleDeleteRecord(r)}
+                            className="inline-flex items-center gap-1 px-2 py-1 text-[10px] font-semibold rounded border border-rose-200 bg-rose-50 text-rose-700 hover:bg-rose-100"
+                          >
+                            <Trash2 className="w-3 h-3" />
+                            삭제
+                          </button>
+                        </div>
                       </Td>
                     )}
                   </tr>
@@ -723,7 +750,7 @@ export const AttendanceTab: React.FC = () => {
                           {w.name} <span className="font-mono text-[10px] text-slate-500">[{w.workerId}]</span>
                         </div>
                         <div className="text-[10px] text-slate-500 truncate">
-                          {w.department || "-"} · {w.duty || "-"}
+                          {w.department || "-"} · {w.duty || "-"} · {w.job || "-"}
                         </div>
                       </div>
                       <span

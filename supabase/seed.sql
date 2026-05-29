@@ -15,7 +15,12 @@ insert into settings (category, data) values
     'lunchEnd',            '13:00',
     'lunchDuration',       1,
     'standardDailyHours',  8,
-    'standardWeeklyHours', 40
+    'standardWeeklyHours', 40,
+    'hourlyOrdinaryWageRate', 10320,
+    'hourlyOrdinaryMonthlyHours', 209,
+    'departments', jsonb_build_array('관리부', '생산부', '영업부', '구매부'),
+    'ranks', jsonb_build_array('사원', '주임', '대리', '과장', '차장', '부장', '팀장', '실장', '이사', '상무', '전무', '부사장', '사장', '대표'),
+    'jobs', jsonb_build_array('관리', '사상', '용접', '취부', '절단', '도비')
   )),
   ('overtimeRules', jsonb_build_object(
     'weekdayOvertimeRate', 1.5,
