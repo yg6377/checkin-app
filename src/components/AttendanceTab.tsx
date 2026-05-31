@@ -52,7 +52,7 @@ function endOfMonth(d: Date): Date {
   return new Date(d.getFullYear(), d.getMonth() + 1, 0);
 }
 
-type Preset = "thisMonth" | "lastMonth" | "last7" | "custom";
+type Preset = "today" | "thisMonth" | "lastMonth" | "last7" | "custom";
 
 // ============================================================
 // AttendanceTab
@@ -87,7 +87,10 @@ export const AttendanceTab: React.FC = () => {
   // preset 변경 시 날짜 자동 세팅
   useEffect(() => {
     const now = new Date();
-    if (preset === "thisMonth") {
+    if (preset === "today") {
+      setFromDate(ymd(now));
+      setToDate(ymd(now));
+    } else if (preset === "thisMonth") {
       setFromDate(ymd(startOfMonth(now)));
       setToDate(ymd(endOfMonth(now)));
     } else if (preset === "lastMonth") {
@@ -301,6 +304,7 @@ export const AttendanceTab: React.FC = () => {
         {/* 프리셋 */}
         <div className="flex flex-wrap gap-1.5">
           {([
+            ["today", "오늘"],
             ["thisMonth", "이번 달"],
             ["lastMonth", "지난 달"],
             ["last7", "최근 7일"],

@@ -246,7 +246,7 @@ const AdminPortal: React.FC = () => {
                 </span>
               </div>
               <h2 className="text-sm font-extrabold tracking-tight text-white mt-0.5">
-                현장 노무 & 급여 정책 관리 시스템 (Workforce Core v4.2)
+                현장 노무 & 급여 정책 관리 시스템 (Workforce Core v{__APP_VERSION__})
               </h2>
             </div>
           </div>
