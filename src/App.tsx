@@ -4,6 +4,7 @@ import { WorkerTab } from "./components/WorkerTab";
 import { SettingsTab } from "./components/SettingsTab";
 import { SimulatorTab } from "./components/SimulatorTab";
 import { AttendanceTab } from "./components/AttendanceTab";
+import { ExpiryTab } from "./components/ExpiryTab";
 import { WorkerPortal } from "./components/WorkerPortal";
 import { AuthRole } from "./utils/auth";
 import { LanguageProvider, languageOptions, useLanguage } from "./i18n";
@@ -12,6 +13,7 @@ import {
   Settings as SettingsIcon,
   Calculator,
   CalendarRange,
+  BellRing,
   LogOut,
   MapPin,
   Clock,
@@ -223,7 +225,7 @@ const LoginGate: React.FC = () => {
 
 const AdminPortal: React.FC = () => {
   const { user, logout, settings } = useApp();
-  const [activeTab, setActiveTab] = useState<"workers" | "attendance" | "rules" | "simulator">("workers");
+  const [activeTab, setActiveTab] = useState<"workers" | "attendance" | "expiry" | "rules" | "simulator">("workers");
 
   return (
     <div className="min-h-screen bg-slate-50 text-slate-900 font-sans flex flex-col justify-between">
@@ -305,6 +307,18 @@ const AdminPortal: React.FC = () => {
             </button>
 
             <button
+              onClick={() => setActiveTab("expiry")}
+              className={`flex-1 sm:flex-initial flex items-center justify-center gap-2 px-4 py-1.5 rounded-md text-xs font-semibold transition cursor-pointer ${
+                activeTab === "expiry"
+                  ? "bg-white text-blue-700 shadow border-b-2 border-blue-600 font-black"
+                  : "text-slate-600 hover:text-slate-900 hover:bg-slate-200/50"
+              }`}
+            >
+              <BellRing className="w-3.5 h-3.5" />
+              만료 관리
+            </button>
+
+            <button
               onClick={() => setActiveTab("rules")}
               className={`flex-1 sm:flex-initial flex items-center justify-center gap-2 px-4 py-1.5 rounded-md text-xs font-semibold transition cursor-pointer ${
                 activeTab === "rules"
@@ -334,6 +348,7 @@ const AdminPortal: React.FC = () => {
       <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-5 flex-1 w-full">
         {activeTab === "workers" && <WorkerTab />}
         {activeTab === "attendance" && <AttendanceTab />}
+        {activeTab === "expiry" && <ExpiryTab />}
         {activeTab === "rules" && <SettingsTab />}
         {activeTab === "simulator" && <SimulatorTab />}
       </main>

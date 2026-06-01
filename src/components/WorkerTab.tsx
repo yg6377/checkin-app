@@ -2,7 +2,7 @@ import React, { useState } from "react";
 import { useApp as useFirebase, WorkerCredentials } from "../context/SupabaseContext";
 import { Worker } from "../types";
 import { DEFAULT_DEPARTMENT_OPTIONS, DEFAULT_JOB_OPTIONS, DEFAULT_RANK_OPTIONS, withCurrentOption } from "../constants/workerOptions";
-import { Search, UserPlus, UserCheck, ShieldAlert, CreditCard, Building, Phone, Briefcase, Trash2, Edit2, X, AlertCircle, KeyRound, Copy, Check } from "lucide-react";
+import { Search, UserPlus, UserCheck, ShieldAlert, CreditCard, Building, Phone, Briefcase, Trash2, Edit2, X, AlertCircle, KeyRound, Copy, Check, Globe } from "lucide-react";
 
 export const WorkerTab: React.FC = () => {
   const { workers, addWorker, updateWorker, deleteWorker, resetWorkerPassword, fetchResidentNumber, settings } = useFirebase();
@@ -26,11 +26,21 @@ export const WorkerTab: React.FC = () => {
   const [address, setAddress] = useState("");
   const [employmentType, setEmploymentType] = useState<"salary" | "hourly" | "daily" | "business">("salary");
   const [contractDate, setContractDate] = useState("");
+  const [contractEndDate, setContractEndDate] = useState("");
   const [joinDate, setJoinDate] = useState("");
   const [retireDate, setRetireDate] = useState("");
   const [duty, setDuty] = useState("");
   const [department, setDepartment] = useState("");
   const [job, setJob] = useState("");
+
+  // 외국인 근로자 추가정보
+  const [isForeigner, setIsForeigner] = useState(false);
+  const [visaType, setVisaType] = useState("");
+  const [passportExpiry, setPassportExpiry] = useState("");
+  const [homeAddress, setHomeAddress] = useState("");
+  const [homeContact, setHomeContact] = useState("");
+  const [emergencyName, setEmergencyName] = useState("");
+  const [emergencyRelation, setEmergencyRelation] = useState("");
 
   // Pay settings
   const [monthlyBase, setMonthlyBase] = useState("");
@@ -76,8 +86,16 @@ export const WorkerTab: React.FC = () => {
     setAddress("");
     setEmploymentType("salary");
     setContractDate(new Date().toISOString().split("T")[0]);
+    setContractEndDate("");
     setJoinDate(new Date().toISOString().split("T")[0]);
     setRetireDate("");
+    setIsForeigner(false);
+    setVisaType("");
+    setPassportExpiry("");
+    setHomeAddress("");
+    setHomeContact("");
+    setEmergencyName("");
+    setEmergencyRelation("");
     setDuty(rankBaseOptions[0] || "");
     setDepartment(departmentBaseOptions[0] || "");
     setJob(jobBaseOptions[0] || "");
@@ -117,8 +135,16 @@ export const WorkerTab: React.FC = () => {
     setAddress(worker.address);
     setEmploymentType(worker.employmentType);
     setContractDate(worker.contractDate);
+    setContractEndDate(worker.contractEndDate || "");
     setJoinDate(worker.joinDate);
     setRetireDate(worker.retireDate || "");
+    setIsForeigner(worker.isForeigner ?? false);
+    setVisaType(worker.visaType || "");
+    setPassportExpiry(worker.passportExpiry || "");
+    setHomeAddress(worker.homeAddress || "");
+    setHomeContact(worker.homeContact || "");
+    setEmergencyName(worker.emergencyName || "");
+    setEmergencyRelation(worker.emergencyRelation || "");
     setDuty(worker.duty);
     setDepartment(worker.department);
     setJob(worker.job || "");
@@ -184,11 +210,19 @@ export const WorkerTab: React.FC = () => {
       address,
       employmentType,
       contractDate,
+      contractEndDate,
       joinDate,
       retireDate: retireDate ? retireDate : null,
       duty,
       department,
       job,
+      isForeigner,
+      visaType,
+      passportExpiry,
+      homeAddress,
+      homeContact,
+      emergencyName,
+      emergencyRelation,
       salarySettings: {
         monthlyBase: Number(monthlyBase) || 0,
         hourlyRate: Number(hourlyRate) || 0,
@@ -477,7 +511,18 @@ export const WorkerTab: React.FC = () => {
 
                 <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
                   <div>
-                    <label className="block text-xs font-medium text-gray-500 mb-1">국적 (Nationality)</label>
+                    <label className="flex items-center justify-between text-xs font-medium text-gray-500 mb-1">
+                      <span>국적 (Nationality)</span>
+                      <label className="flex items-center gap-1 text-[11px] font-semibold text-blue-600 cursor-pointer select-none">
+                        <input
+                          type="checkbox"
+                          checked={isForeigner}
+                          onChange={(e) => setIsForeigner(e.target.checked)}
+                          className="h-3.5 w-3.5 rounded border-gray-300 text-blue-600 focus:ring-blue-400"
+                        />
+                        외국인 근로자
+                      </label>
+                    </label>
                     <input
                       type="text"
                       placeholder="대한민국 / 베트남 / 중국 등"
@@ -520,6 +565,82 @@ export const WorkerTab: React.FC = () => {
                   />
                 </div>
               </div>
+
+              {/* SECTION A-2: 외국인 추가정보 (체크 시에만 노출) */}
+              {isForeigner && (
+                <div className="space-y-4 rounded-lg border border-blue-100 bg-blue-50/30 p-4">
+                  <h4 className="text-sm font-semibold text-gray-900 border-b border-blue-100 pb-1.5 flex items-center gap-2">
+                    <Globe className="w-4 h-4 text-blue-500" />
+                    외국인 추가정보 (Foreign Worker Details)
+                  </h4>
+
+                  <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                    <div>
+                      <label className="block text-xs font-medium text-gray-500 mb-1">비자 종류 (Visa)</label>
+                      <input
+                        type="text"
+                        placeholder="E-9 / H-2 / F-4 등"
+                        value={visaType}
+                        onChange={(e) => setVisaType(e.target.value)}
+                        className="w-full px-3 py-1.5 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-1 focus:ring-gray-300"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-xs font-medium text-gray-500 mb-1">여권 만료일</label>
+                      <input
+                        type="date"
+                        value={passportExpiry}
+                        onChange={(e) => setPassportExpiry(e.target.value)}
+                        className="w-full px-3 py-1.5 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-1 focus:ring-gray-300"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-xs font-medium text-gray-500 mb-1">본국 연락처</label>
+                      <input
+                        type="text"
+                        placeholder="+84 ..."
+                        value={homeContact}
+                        onChange={(e) => setHomeContact(e.target.value)}
+                        className="w-full px-3 py-1.5 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-1 focus:ring-gray-300"
+                      />
+                    </div>
+                  </div>
+
+                  <div>
+                    <label className="block text-xs font-medium text-gray-500 mb-1">본국 주소</label>
+                    <input
+                      type="text"
+                      placeholder="본국 거주지 주소"
+                      value={homeAddress}
+                      onChange={(e) => setHomeAddress(e.target.value)}
+                      className="w-full px-3 py-1.5 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-1 focus:ring-gray-300"
+                    />
+                  </div>
+
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    <div>
+                      <label className="block text-xs font-medium text-gray-500 mb-1">본국 연락 가능 이름</label>
+                      <input
+                        type="text"
+                        placeholder="비상 연락 대상자 이름"
+                        value={emergencyName}
+                        onChange={(e) => setEmergencyName(e.target.value)}
+                        className="w-full px-3 py-1.5 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-1 focus:ring-gray-300"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-xs font-medium text-gray-500 mb-1">관계</label>
+                      <input
+                        type="text"
+                        placeholder="배우자 / 부모 / 형제 등"
+                        value={emergencyRelation}
+                        onChange={(e) => setEmergencyRelation(e.target.value)}
+                        className="w-full px-3 py-1.5 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-1 focus:ring-gray-300"
+                      />
+                    </div>
+                  </div>
+                </div>
+              )}
 
               {/* SECTION B: 고용 계약 조건 */}
               <div className="space-y-4">
@@ -596,6 +717,18 @@ export const WorkerTab: React.FC = () => {
                       type="date"
                       value={contractDate}
                       onChange={(e) => setContractDate(e.target.value)}
+                      className="w-full px-3 py-1.5 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-1 focus:ring-gray-300"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-xs font-medium text-gray-500 mb-1">
+                      계약 만료일
+                      {isForeigner && <span className="ml-1 text-[10px] text-blue-600 font-semibold">(외국인 권장)</span>}
+                    </label>
+                    <input
+                      type="date"
+                      value={contractEndDate}
+                      onChange={(e) => setContractEndDate(e.target.value)}
                       className="w-full px-3 py-1.5 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-1 focus:ring-gray-300"
                     />
                   </div>

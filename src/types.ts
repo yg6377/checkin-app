@@ -89,11 +89,20 @@ export interface Worker {
   address: string;
   employmentType: "salary" | "hourly" | "daily" | "business"; // 월급제, 시급제, 일용직, 사업소득자
   contractDate: string; // YYYY-MM-DD
+  contractEndDate: string; // YYYY-MM-DD (계약 만료일, 공통 — 만료 알림 대상)
   joinDate: string; // YYYY-MM-DD
   retireDate: string | null;
   duty: string;
   department: string;
   job: string;
+  // 외국인 근로자 정보 (isForeigner === true 일 때만 의미)
+  isForeigner: boolean;
+  visaType: string; // 비자 종류
+  passportExpiry: string; // YYYY-MM-DD (여권 만료일 — 만료 알림 대상)
+  homeAddress: string; // 본국 주소
+  homeContact: string; // 본국 연락처
+  emergencyName: string; // 본국 연락 가능 이름
+  emergencyRelation: string; // 관계
   salarySettings: {
     monthlyBase: number;
     hourlyRate: number;

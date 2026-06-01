@@ -1022,6 +1022,15 @@ export async function exportAttendanceBook(ctx: ExportContext): Promise<void> {
     { label: "자가운전보조비", pick: (w) => w.salarySettings.allowances.transport ?? ctx.settings.allowanceDefaults.transport },
     { label: "숙소료", pick: (w) => w.deductionSettings.housingFee || 0 },
     { label: "가불금", pick: (w) => w.deductionSettings.cashAdvance || 0 },
+    { label: "외국인 정보", pick: () => "" },
+    { label: "국적", pick: (w) => w.nationality || "" },
+    { label: "비자종류", pick: (w) => w.visaType || "" },
+    { label: "계약만료일", pick: (w) => w.contractEndDate ? new Date(w.contractEndDate) : "" },
+    { label: "여권만료일", pick: (w) => w.passportExpiry ? new Date(w.passportExpiry) : "" },
+    { label: "본국 주소", pick: (w) => w.homeAddress || "" },
+    { label: "본국 연락처", pick: (w) => w.homeContact || "" },
+    { label: "본국 연락 가능 이름", pick: (w) => w.emergencyName || "" },
+    { label: "관계", pick: (w) => w.emergencyRelation || "" },
   ];
 
   // 헤더 (1행): 항목 | 근로자1 | 근로자2 | ...
@@ -1036,8 +1045,9 @@ export async function exportAttendanceBook(ctx: ExportContext): Promise<void> {
 
   settingRows.forEach((rdef, ri) => {
     const r = wsSet.getRow(2 + ri);
-    setCell(r.getCell(1), rdef.label, { align: "left", bold: rdef.label === "기본 정보" || rdef.label === "변동/고정 수당" });
-    if (rdef.label === "기본 정보" || rdef.label === "변동/고정 수당") {
+    const isSectionHeader = rdef.label === "기본 정보" || rdef.label === "변동/고정 수당" || rdef.label === "외국인 정보";
+    setCell(r.getCell(1), rdef.label, { align: "left", bold: isSectionHeader });
+    if (isSectionHeader) {
       r.getCell(1).fill = { type: "pattern", pattern: "solid", fgColor: { argb: "FFFEF3C7" } };
     }
     ctx.workers.forEach((w, i) => {
