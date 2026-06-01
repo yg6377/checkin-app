@@ -1,14 +1,18 @@
 -- ============================================================
--- 004: 주민등록번호 암호화 (pgcrypto 대칭키)
+-- 004: 주민등록번호 암호화 (pgcrypto 대칭키 + Supabase Vault)
 -- ============================================================
 --
 -- ★ 마이그레이션 실행 전 Supabase SQL 에디터에서 반드시 실행하세요:
 --
---   ALTER DATABASE postgres
---     SET app.encryption_key = '여기에_최소32자_무작위_문자열_입력';
+--   select vault.create_secret(
+--     '여기에_최소32자_무작위_키',     -- openssl rand -base64 32
+--     'resident_encryption_key',      -- 비밀 이름 (app_encryption_key() 가 이 이름으로 조회)
+--     '주민/여권번호 암호화 키'
+--   );
 --
---   예시 키 생성 (터미널):
---     openssl rand -base64 32
+-- 참고: Supabase 클라우드는 ALTER DATABASE ... SET 권한이 없어
+--       current_setting('app.encryption_key') 방식을 쓸 수 없습니다.
+--       대신 Vault 에 저장하고 app_encryption_key() 로 읽습니다.
 --
 -- 이 키를 잃어버리면 암호화된 데이터를 복호화할 수 없습니다.
 -- 반드시 별도 안전한 곳에 백업하세요.
@@ -19,6 +23,28 @@
 CREATE EXTENSION IF NOT EXISTS pgcrypto;
 
 
+-- ─── 1-1. 암호화 키 조회 헬퍼 (Vault) ────────────────────────
+--   Vault 의 'resident_encryption_key' 비밀을 복호화해 반환.
+--   기존 current_setting('app.encryption_key') 를 대체.
+CREATE OR REPLACE FUNCTION app_encryption_key()
+RETURNS text
+LANGUAGE sql
+STABLE
+SECURITY DEFINER
+SET search_path = ''
+AS $$
+  SELECT decrypted_secret
+  FROM vault.decrypted_secrets
+  WHERE name = 'resident_encryption_key'
+  LIMIT 1;
+$$;
+
+-- 키 자체는 SECURITY DEFINER 함수 내부에서만 쓰이므로 직접 실행 권한은 회수.
+REVOKE ALL ON FUNCTION app_encryption_key() FROM public;
+REVOKE ALL ON FUNCTION app_encryption_key() FROM anon;
+REVOKE ALL ON FUNCTION app_encryption_key() FROM authenticated;
+
+
 -- ─── 2. 암호화 컬럼 추가 ──────────────────────────────────────
 ALTER TABLE workers
   ADD COLUMN IF NOT EXISTS resident_number_enc bytea;
@@ -27,7 +53,7 @@ ALTER TABLE workers
 -- ─── 3. 기존 평문 데이터 암호화 후 원본 삭제 ──────────────────
 DO $$
 DECLARE
-  v_key text := current_setting('app.encryption_key', true);
+  v_key text := app_encryption_key();
 BEGIN
   IF v_key IS NOT NULL AND length(v_key) >= 16 THEN
     -- 기존 데이터 암호화
@@ -45,7 +71,7 @@ BEGIN
   ELSE
     -- 키 없이도 평문은 지움 (최소한의 조치)
     UPDATE workers SET resident_number = NULL WHERE resident_number IS NOT NULL;
-    RAISE WARNING '[004] app.encryption_key 가 설정되지 않아 기존 평문을 NULL 처리했습니다. '
+    RAISE WARNING '[004] Vault 의 resident_encryption_key 가 설정되지 않아 기존 평문을 NULL 처리했습니다. '
                   '키 설정 후 근로자 수정 화면에서 재입력이 필요합니다.';
   END IF;
 END;
@@ -109,7 +135,7 @@ BEGIN
 
   -- 주민등록번호 암호화
   v_resident_raw := nullif(trim(coalesce(worker_data->>'resident_number', '')), '');
-  v_key := current_setting('app.encryption_key', true);
+  v_key := app_encryption_key();
   IF v_resident_raw IS NOT NULL AND v_key IS NOT NULL AND length(v_key) >= 16 THEN
     v_resident_enc := pgp_sym_encrypt(v_resident_raw, v_key);
   END IF;
@@ -205,7 +231,7 @@ BEGIN
     RAISE EXCEPTION '관리자 권한이 필요합니다.';
   END IF;
 
-  v_key := current_setting('app.encryption_key', true);
+  v_key := app_encryption_key();
   IF v_key IS NULL OR length(v_key) < 16 THEN
     RAISE EXCEPTION '암호화 키가 설정되지 않았습니다. 관리자에게 문의하세요.';
   END IF;
@@ -237,7 +263,7 @@ BEGIN
     RAISE EXCEPTION '관리자 권한이 필요합니다.';
   END IF;
 
-  v_key := current_setting('app.encryption_key', true);
+  v_key := app_encryption_key();
   IF v_key IS NULL OR length(v_key) < 16 THEN
     RAISE EXCEPTION '암호화 키가 설정되지 않았습니다. 관리자에게 문의하세요.';
   END IF;

@@ -1,8 +1,14 @@
 -- 005: 근로자 본인 정보 수정 / 비밀번호 변경
+--
+-- 주민/여권번호는 본인 수정 대상에서 제외한다.
+-- 정책: 변경 시 근로자가 관리자에게 알리고 관리자가 set_resident_number 로 수정.
+-- (근로자 본인 함수에 주민번호를 두면 평문 컬럼에 저장되어 004 암호화를 우회하므로 제거)
+
+-- 이전 6-인자 버전(주민번호 포함)이 만들어진 적 있으면 제거
+drop function if exists update_my_worker_profile(text, text, text, text, text, text);
 
 create or replace function update_my_worker_profile(
   p_name             text,
-  p_resident_number  text,
   p_bank_name        text,
   p_account_no       text,
   p_account_holder   text,
@@ -32,7 +38,6 @@ begin
 
   update workers
   set name = trim(p_name),
-      resident_number = nullif(trim(p_resident_number), ''),
       bank_name = nullif(trim(p_bank_name), ''),
       account_no = nullif(trim(p_account_no), ''),
       account_holder = case
@@ -45,7 +50,7 @@ begin
 end;
 $$;
 
-grant execute on function update_my_worker_profile(text, text, text, text, text, text) to authenticated;
+grant execute on function update_my_worker_profile(text, text, text, text, text) to authenticated;
 
 
 create or replace function change_my_password(
