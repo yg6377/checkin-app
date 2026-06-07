@@ -2,6 +2,7 @@ import React, { useCallback, useEffect, useId, useRef, useState } from "react";
 import { AttendanceRecord, useApp } from "../context/SupabaseContext";
 import type { Html5Qrcode } from "html5-qrcode";
 import { languageOptions, languageToLocale, useLanguage } from "../i18n";
+import { formatZonedTime, getAppTimeZone, getZonedYmd } from "../utils/datetime";
 import {
   HardHat,
   LogIn,
@@ -19,12 +20,6 @@ import {
 // ============================================================
 // 시간 포맷 헬퍼
 // ============================================================
-function fmtTime(iso: string | null): string {
-  if (!iso) return "--:--";
-  const d = new Date(iso);
-  return `${String(d.getHours()).padStart(2, "0")}:${String(d.getMinutes()).padStart(2, "0")}`;
-}
-
 function fmtDateLabel(date: Date, locale: string): string {
   return new Intl.DateTimeFormat(locale, {
     year: "numeric",
@@ -32,14 +27,6 @@ function fmtDateLabel(date: Date, locale: string): string {
     day: "numeric",
     weekday: "short",
   }).format(date);
-}
-
-function ymd(d: Date): string {
-  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
-}
-
-function monthStart(d: Date): string {
-  return ymd(new Date(d.getFullYear(), d.getMonth(), 1));
 }
 
 // ============================================================
@@ -306,7 +293,8 @@ const AttendanceResultModal: React.FC<{
 // 근로자 메인 화면
 // ============================================================
 export const WorkerPortal: React.FC = () => {
-  const { user, logout, workers, todayAttendance, submitAttendance, refreshTodayAttendance, fetchAttendance } = useApp();
+  const { user, logout, workers, todayAttendance, submitAttendance, refreshTodayAttendance, fetchAttendance, settings } = useApp();
+  const tz = getAppTimeZone(settings);
   const { language, setLanguage, t } = useLanguage();
   const [scannerAction, setScannerAction] = useState<"in" | "out" | null>(null);
   const [now, setNow] = useState(new Date());
@@ -341,8 +329,8 @@ export const WorkerPortal: React.FC = () => {
     setRecordsError("");
     try {
       const records = await fetchAttendance({
-        fromDate: monthStart(new Date()),
-        toDate: ymd(new Date()),
+        fromDate: getZonedYmd(new Date(), tz).slice(0, 8) + "01",
+        toDate: getZonedYmd(new Date(), tz),
         workerId: me.id,
       });
       setAttendanceHistory(records);
@@ -448,7 +436,7 @@ export const WorkerPortal: React.FC = () => {
                     {t("checkIn")}
                   </div>
                   <p className={`text-xl font-extrabold font-mono mt-1 ${checkedIn ? "text-emerald-700" : "text-slate-300"}`}>
-                    {fmtTime(todayAttendance?.checkInAt ?? null)}
+                    {formatZonedTime(todayAttendance?.checkInAt ?? null, tz)}
                   </p>
                 </div>
                 <div className={`p-3 rounded-xl border ${checkedOut ? "bg-rose-50 border-rose-200" : "bg-slate-50 border-slate-200"}`}>
@@ -457,7 +445,7 @@ export const WorkerPortal: React.FC = () => {
                     {t("checkOut")}
                   </div>
                   <p className={`text-xl font-extrabold font-mono mt-1 ${checkedOut ? "text-rose-700" : "text-slate-300"}`}>
-                    {fmtTime(todayAttendance?.checkOutAt ?? null)}
+                    {formatZonedTime(todayAttendance?.checkOutAt ?? null, tz)}
                   </p>
                 </div>
               </div>

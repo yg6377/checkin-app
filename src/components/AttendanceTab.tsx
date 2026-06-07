@@ -17,8 +17,12 @@ import {
   Plus,
   Trash2,
   X,
+  ChevronDown,
+  ChevronRight,
 } from "lucide-react";
 import { exportLaborLedger, exportAttendanceBook, exportPayslips } from "../utils/excelExporter";
+import { calculateDailyBreakdown, isHolidayDate } from "../utils/attendanceHours";
+import { formatZonedTime, getAppTimeZone, getZonedYmd, zonedWallTimeToUtcIso } from "../utils/datetime";
 
 // ============================================================
 // 날짜 헬퍼
@@ -27,21 +31,11 @@ function ymd(d: Date): string {
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
 }
 
-function fmtTime(iso: string | null): string {
-  if (!iso) return "--:--";
-  const d = new Date(iso);
-  return `${String(d.getHours()).padStart(2, "0")}:${String(d.getMinutes()).padStart(2, "0")}`;
-}
-
 function fmtHours(h: number): string {
   if (h <= 0) return "-";
   const hours = Math.floor(h);
   const minutes = Math.round((h - hours) * 60);
   return `${hours}시간 ${minutes}분`;
-}
-
-function toLocalIso(date: string, time: string): string {
-  return new Date(`${date}T${time}:00`).toISOString();
 }
 
 function startOfMonth(d: Date): Date {
@@ -62,6 +56,9 @@ export const AttendanceTab: React.FC = () => {
   const [exporting, setExporting] = useState<"" | "ledger" | "book" | "payslip">("");
   const [exportError, setExportError] = useState("");
 
+  const tz = getAppTimeZone(settings);
+  // 설정 타임존 기준 "오늘" (미체크/필터 판정용)
+  const todayYmd = useMemo(() => getZonedYmd(new Date(), tz), [tz]);
   const today = useMemo(() => new Date(), []);
   const [preset, setPreset] = useState<Preset>("thisMonth");
   const [fromDate, setFromDate] = useState<string>(ymd(startOfMonth(today)));
@@ -71,11 +68,21 @@ export const AttendanceTab: React.FC = () => {
   const [records, setRecords] = useState<AttendanceRecord[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
+  const [expandedId, setExpandedId] = useState<string | null>(null);
+
+  // workers.id → Worker (근태 레코드의 workerId와 매칭해 고용 유형 판별)
+  const workerById = useMemo(() => {
+    const map = new Map<string, (typeof workers)[number]>();
+    workers.forEach((w) => {
+      if (w.id) map.set(w.id, w);
+    });
+    return map;
+  }, [workers]);
   const [manualModalOpen, setManualModalOpen] = useState(false);
   const [manualSaving, setManualSaving] = useState(false);
   const [manualError, setManualError] = useState("");
   const [manualWorkerId, setManualWorkerId] = useState("");
-  const [manualWorkDate, setManualWorkDate] = useState(ymd(today));
+  const [manualWorkDate, setManualWorkDate] = useState(todayYmd);
   const [manualCheckIn, setManualCheckIn] = useState("");
   const [manualCheckOut, setManualCheckOut] = useState("");
   const [manualNote, setManualNote] = useState("관리자 수동 입력");
@@ -134,22 +141,77 @@ export const AttendanceTab: React.FC = () => {
     const totalDays = records.filter((r) => r.checkInAt).length;
     const totalHours = records.reduce((sum, r) => sum + r.workHours, 0);
     const missingCheckout = records.filter(
-      (r) => r.checkInAt && !r.checkOutAt && r.workDate < ymd(today)
+      (r) => r.checkInAt && !r.checkOutAt && r.workDate < todayYmd
     ).length;
     const uniqueWorkers = new Set(records.map((r) => r.workerId)).size;
     return { totalDays, totalHours, missingCheckout, uniqueWorkers };
   }, [records, today]);
 
   const isMissingCheckout = (r: AttendanceRecord) =>
-    r.checkInAt && !r.checkOutAt && r.workDate < ymd(today);
+    r.checkInAt && !r.checkOutAt && r.workDate < todayYmd;
+
+  // 펼침 영역: 고용 유형에 따라 시간 분해(월급/시급) 또는 공수(일용/사업소득자) 표시
+  const renderBreakdown = (r: AttendanceRecord) => {
+    const worker = workerById.get(r.workerId);
+    if (!worker) {
+      return (
+        <div className="text-[11px] text-slate-400">
+          근로자 정보를 찾을 수 없어 상세 분해를 표시할 수 없습니다.
+        </div>
+      );
+    }
+    if (!r.checkInAt || !r.checkOutAt) {
+      return (
+        <div className="text-[11px] text-slate-400">
+          출근/퇴근이 모두 기록된 경우에만 상세 분해를 계산합니다.
+        </div>
+      );
+    }
+
+    const holiday = isHolidayDate(r.workDate, holidays);
+    const bd = calculateDailyBreakdown(
+      r.checkInAt,
+      r.checkOutAt,
+      holiday,
+      worker.employmentType,
+      settings
+    );
+
+    const isManDay = worker.employmentType === "daily" || worker.employmentType === "business";
+
+    if (isManDay) {
+      return (
+        <div className="flex items-center gap-4">
+          <BreakdownCell label="공수" value={`${bd.manDays.toFixed(2)} 공수`} strong />
+          <BreakdownCell label="근무" value={fmtHours(bd.workHours)} />
+          {bd.nightHours > 0 && <BreakdownCell label="야간" value={fmtHours(bd.nightHours)} />}
+          {holiday && (
+            <span className="text-[10px] px-2 py-0.5 rounded bg-amber-100 text-amber-700 font-bold border border-amber-200">
+              휴일
+            </span>
+          )}
+        </div>
+      );
+    }
+
+    return (
+      <div className="grid grid-cols-2 md:grid-cols-5 gap-3">
+        <BreakdownCell label="근무" value={fmtHours(bd.workHours)} strong />
+        <BreakdownCell label="연장시간" value={fmtHours(bd.overtimeHours)} />
+        <BreakdownCell label="휴일근로시간" value={fmtHours(bd.holidayHours)} />
+        <BreakdownCell label="휴일연장시간" value={fmtHours(bd.holidayOvertimeHours)} />
+        <BreakdownCell label="야간근로시간" value={fmtHours(bd.nightHours)} />
+      </div>
+    );
+  };
 
   const openManualModal = (record?: AttendanceRecord) => {
     setManualError("");
     if (record) {
       setManualWorkerId(record.workerId);
       setManualWorkDate(record.workDate);
-      setManualCheckIn(record.checkInAt ? fmtTime(record.checkInAt) : "");
-      setManualCheckOut(record.checkOutAt ? fmtTime(record.checkOutAt) : "");
+      setManualCheckIn(record.checkInAt ? formatZonedTime(record.checkInAt, tz, "") : "");
+      setManualCheckOut(record.checkOutAt ? formatZonedTime(record.checkOutAt, tz, "") : "");
       setManualNote("관리자 수동 수정");
     } else {
       setManualWorkerId(workerId !== "all" ? workerId : workers[0]?.id || "");
@@ -192,8 +254,8 @@ export const AttendanceTab: React.FC = () => {
       await upsertAttendanceByAdmin({
         workerId: manualWorkerId,
         workDate: manualWorkDate,
-        checkInAt: manualCheckIn ? toLocalIso(manualWorkDate, manualCheckIn) : null,
-        checkOutAt: manualCheckOut ? toLocalIso(manualWorkDate, manualCheckOut) : null,
+        checkInAt: manualCheckIn ? zonedWallTimeToUtcIso(manualWorkDate, manualCheckIn, tz) : null,
+        checkOutAt: manualCheckOut ? zonedWallTimeToUtcIso(manualWorkDate, manualCheckOut, tz) : null,
         note: manualNote.trim() || "관리자 수동 입력",
       });
       await runQuery();
@@ -494,29 +556,31 @@ export const AttendanceTab: React.FC = () => {
                 <Th className="text-right">근무시간</Th>
                 <Th className="text-center">상태</Th>
                 {role === "admin" && <Th className="text-center">관리</Th>}
+                <Th className="w-8" />
               </tr>
             </thead>
             <tbody>
               {loading ? (
                 <tr>
-                  <td colSpan={role === "admin" ? 7 : 6} className="text-center py-10 text-slate-400">
+                  <td colSpan={role === "admin" ? 8 : 7} className="text-center py-10 text-slate-400">
                     <Loader2 className="w-5 h-5 animate-spin inline mr-2" />
                     조회 중...
                   </td>
                 </tr>
               ) : records.length === 0 ? (
                 <tr>
-                  <td colSpan={role === "admin" ? 7 : 6} className="text-center py-10 text-slate-400">
+                  <td colSpan={role === "admin" ? 8 : 7} className="text-center py-10 text-slate-400">
                     조회 결과가 없습니다.
                   </td>
                 </tr>
               ) : (
                 records.map((r) => (
+                  <React.Fragment key={r.id}>
                   <tr
-                    key={r.id}
-                    className={`border-b border-slate-100 hover:bg-slate-50 ${
+                    onClick={() => setExpandedId((prev) => (prev === r.id ? null : r.id))}
+                    className={`border-b border-slate-100 hover:bg-slate-50 cursor-pointer ${
                       isMissingCheckout(r) ? "bg-rose-50/40" : ""
-                    }`}
+                    } ${expandedId === r.id ? "bg-slate-50" : ""}`}
                   >
                     <Td className="font-mono">{r.workDate}</Td>
                     <Td>
@@ -528,13 +592,13 @@ export const AttendanceTab: React.FC = () => {
                     <Td className="text-center font-mono text-emerald-700">
                       <span className="inline-flex items-center gap-1">
                         <LogIn className="w-3 h-3" />
-                        {fmtTime(r.checkInAt)}
+                        {formatZonedTime(r.checkInAt, tz)}
                       </span>
                     </Td>
                     <Td className={`text-center font-mono ${r.checkOutAt ? "text-rose-700" : "text-slate-300"}`}>
                       <span className="inline-flex items-center gap-1">
                         <LogOut className="w-3 h-3" />
-                        {fmtTime(r.checkOutAt)}
+                        {formatZonedTime(r.checkOutAt, tz)}
                       </span>
                     </Td>
                     <Td className="text-right font-mono font-bold text-slate-800">
@@ -559,14 +623,20 @@ export const AttendanceTab: React.FC = () => {
                       <Td className="text-center">
                         <div className="inline-flex items-center justify-center gap-1">
                           <button
-                            onClick={() => openManualModal(r)}
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              openManualModal(r);
+                            }}
                             className="inline-flex items-center gap-1 px-2 py-1 text-[10px] font-semibold rounded border border-slate-200 bg-white text-slate-700 hover:bg-slate-50"
                           >
                             <Pencil className="w-3 h-3" />
                             수정
                           </button>
                           <button
-                            onClick={() => void handleDeleteRecord(r)}
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              void handleDeleteRecord(r);
+                            }}
                             className="inline-flex items-center gap-1 px-2 py-1 text-[10px] font-semibold rounded border border-rose-200 bg-rose-50 text-rose-700 hover:bg-rose-100"
                           >
                             <Trash2 className="w-3 h-3" />
@@ -575,7 +645,22 @@ export const AttendanceTab: React.FC = () => {
                         </div>
                       </Td>
                     )}
+                    <Td className="text-center text-slate-400">
+                      {expandedId === r.id ? (
+                        <ChevronDown className="w-4 h-4 inline" />
+                      ) : (
+                        <ChevronRight className="w-4 h-4 inline" />
+                      )}
+                    </Td>
                   </tr>
+                  {expandedId === r.id && (
+                    <tr className="bg-slate-50 border-b border-slate-200">
+                      <td colSpan={role === "admin" ? 8 : 7} className="px-4 py-3">
+                        {renderBreakdown(r)}
+                      </td>
+                    </tr>
+                  )}
+                  </React.Fragment>
                 ))
               )}
             </tbody>
@@ -594,6 +679,7 @@ export const AttendanceTab: React.FC = () => {
               <div>
                 <h3 className="text-sm font-bold text-slate-900">관리자 수동 출퇴근 입력</h3>
                 <p className="text-[11px] text-slate-500 mt-1">출근 누락, 퇴근 누락, 현장 대리 입력 상황을 보정합니다.</p>
+                <p className="text-[10px] text-blue-600 mt-1">입력 시각은 현장 시간대({tz}) 기준으로 저장됩니다.</p>
               </div>
               <button onClick={closeManualModal} className="p-1.5 rounded-full hover:bg-slate-100">
                 <X className="w-4 h-4 text-slate-500" />
@@ -808,6 +894,19 @@ const Th: React.FC<{ children: React.ReactNode; className?: string }> = ({ child
 
 const Td: React.FC<{ children: React.ReactNode; className?: string }> = ({ children, className }) => (
   <td className={`px-3 py-2.5 align-middle ${className || ""}`}>{children}</td>
+);
+
+const BreakdownCell: React.FC<{ label: string; value: string; strong?: boolean }> = ({
+  label,
+  value,
+  strong,
+}) => (
+  <div className="rounded-md border border-slate-200 bg-white px-2.5 py-2">
+    <div className="text-[10px] font-bold uppercase tracking-wider text-slate-400">{label}</div>
+    <p className={`mt-0.5 font-mono ${strong ? "text-sm font-extrabold text-slate-900" : "text-xs font-bold text-slate-700"}`}>
+      {value}
+    </p>
+  </div>
 );
 
 const SummaryCard: React.FC<{

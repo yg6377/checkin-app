@@ -3,6 +3,7 @@ import { saveAs } from "file-saver";
 import { AllSettings, Worker, Holiday } from "../types";
 import { AttendanceRecord } from "../context/SupabaseContext";
 import { getWorkerAllowances } from "./payrollCalculator";
+import { formatZonedTime, getAppTimeZone, getZonedClockMinutes } from "./datetime";
 
 // ============================================================
 // 공통 헬퍼
@@ -18,10 +19,8 @@ function ymd(d: Date): string {
   return `${d.getFullYear()}-${pad2(d.getMonth() + 1)}-${pad2(d.getDate())}`;
 }
 
-function fmtHHMM(iso: string | null): string {
-  if (!iso) return "";
-  const d = new Date(iso);
-  return `${pad2(d.getHours())}:${pad2(d.getMinutes())}`;
+function fmtHHMM(iso: string | null, timeZone: string): string {
+  return formatZonedTime(iso, timeZone, "");
 }
 
 function daysInMonth(year: number, month1to12: number): number {
@@ -111,10 +110,10 @@ function splitDayHours(
   const inDate = new Date(checkInISO);
   const outDate = new Date(checkOutISO);
 
-  // 같은 날 기준 분 단위 (자정 넘김은 +1440)
-  const baseMid = new Date(inDate.getFullYear(), inDate.getMonth(), inDate.getDate()).getTime();
-  const startMin = (inDate.getTime() - baseMid) / 60000;
-  let endMin = (outDate.getTime() - baseMid) / 60000;
+  // 설정 타임존 기준 벽시계 분(分) 단위 (자정 넘김은 +1440)
+  const timeZone = getAppTimeZone(settings);
+  const startMin = getZonedClockMinutes(inDate, timeZone);
+  let endMin = getZonedClockMinutes(outDate, timeZone);
   if (endMin <= startMin) endMin += 1440;
 
   // 점심시간 (보통 12:00-13:00) 겹침 차감
@@ -319,6 +318,7 @@ function unitRate(w: Worker): number {
 
 export async function exportLaborLedger(ctx: ExportContext): Promise<void> {
   const dim = daysInMonth(ctx.year, ctx.month);
+  const tz = getAppTimeZone(ctx.settings);
   const wb = new ExcelJS.Workbook();
   wb.creator = "Workforce Core";
   wb.created = new Date();
@@ -468,8 +468,8 @@ export async function exportLaborLedger(ctx: ExportContext): Promise<void> {
     for (let d = 1; d <= dim; d++) {
       const col = dayStartCol + d - 1;
       const day = a.byDay.get(d)!;
-      setCell(ws.getCell(r1, col), day.inAt ? fmtHHMM(day.inAt) : "");
-      setCell(ws.getCell(r2, col), day.outAt ? fmtHHMM(day.outAt) : "");
+      setCell(ws.getCell(r1, col), day.inAt ? fmtHHMM(day.inAt, tz) : "");
+      setCell(ws.getCell(r2, col), day.outAt ? fmtHHMM(day.outAt, tz) : "");
 
       const otOrManDays = isDaily
         ? round2(day.base + day.overtime + day.holiday + day.holidayOvertime)
@@ -998,6 +998,7 @@ export async function exportAttendanceBook(ctx: ExportContext): Promise<void> {
   const wb = new ExcelJS.Workbook();
   wb.creator = "Workforce Core";
   wb.created = new Date();
+  const tz = getAppTimeZone(ctx.settings);
 
   // ── Sheet 1: 1.설정(통합) ──
   const wsSet = wb.addWorksheet("1.설정(통합)");
@@ -1126,8 +1127,8 @@ export async function exportAttendanceBook(ctx: ExportContext): Promise<void> {
     agg.forEach((a, idx) => {
       const startCol = 4 + idx * 7;
       const day = a.byDay.get(d)!;
-      const inS = day.inAt ? fmtHHMM(day.inAt) : "";
-      const outS = day.outAt ? fmtHHMM(day.outAt) : "";
+      const inS = day.inAt ? fmtHHMM(day.inAt, tz) : "";
+      const outS = day.outAt ? fmtHHMM(day.outAt, tz) : "";
       setCell(wsAtt.getCell(row, startCol + 0), inS);
       setCell(wsAtt.getCell(row, startCol + 1), outS);
       setCell(wsAtt.getCell(row, startCol + 2), day.base ? round2(day.base) : (day.inAt ? 0 : ""));

@@ -62,6 +62,7 @@ export interface SiteSettings {
   siteLocation: { lat: number; lng: number };
   allowedRadius: number; // meters, e.g., 100
   paymentDay: number; // e.g., 15
+  timezone?: string; // IANA 타임존, e.g., "Asia/Seoul" (미설정 시 Asia/Seoul로 간주)
 }
 
 export interface AnnualLeaveSettings {

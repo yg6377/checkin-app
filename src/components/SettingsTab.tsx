@@ -2,6 +2,7 @@ import React, { useState } from "react";
 import { useApp as useFirebase } from "../context/SupabaseContext";
 import { AllSettings, Holiday } from "../types";
 import { DEFAULT_DEPARTMENT_OPTIONS, DEFAULT_JOB_OPTIONS, DEFAULT_RANK_OPTIONS } from "../constants/workerOptions";
+import { DEFAULT_TIME_ZONE, TIME_ZONE_OPTIONS } from "../utils/datetime";
 import {
   Settings,
   Building,
@@ -571,6 +572,22 @@ export const SettingsTab: React.FC = () => {
                       <option key={day} value={day}>매달 {day}일 지급</option>
                     ))}
                   </select>
+                </div>
+
+                <div>
+                  <label className="block text-xs font-semibold text-gray-500 mb-1">현장 표준 시간대 (Time Zone)</label>
+                  <select
+                    value={settings.site.timezone || DEFAULT_TIME_ZONE}
+                    onChange={(e) => updateSetting("site", { ...settings.site, timezone: e.target.value })}
+                    className="w-full px-3 py-1.5 border border-gray-200 rounded-lg text-sm bg-white"
+                  >
+                    {TIME_ZONE_OPTIONS.map((opt) => (
+                      <option key={opt.value} value={opt.value}>{opt.label}</option>
+                    ))}
+                  </select>
+                  <p className="text-[10px] text-gray-400 mt-1">
+                    출퇴근 시각 표시와 근로시간(연장·야간·휴일·공수) 계산이 이 시간대를 기준으로 처리됩니다. 한국 현장은 Asia/Seoul 권장.
+                  </p>
                 </div>
               </div>
 

@@ -1,4 +1,5 @@
-import type { WorkTimeSettings } from "../types";
+import type { AllSettings, Holiday, WorkTimeSettings, Worker } from "../types";
+import { DEFAULT_TIME_ZONE, getAppTimeZone, getZonedClockMinutes } from "./datetime";
 
 function hhmmToMinutes(value: string): number {
   const [hours, minutes] = value.split(":").map(Number);
@@ -13,7 +14,8 @@ function overlapMinutes(start: number, end: number, windowStart: number, windowE
 export function calculateWorkedHours(
   checkInISO: string | null,
   checkOutISO: string | null,
-  workTime?: WorkTimeSettings
+  workTime?: WorkTimeSettings,
+  timeZone: string = DEFAULT_TIME_ZONE
 ): number {
   if (!checkInISO || !checkOutISO) return 0;
 
@@ -21,13 +23,9 @@ export function calculateWorkedHours(
   const checkOut = new Date(checkOutISO);
   if (Number.isNaN(checkIn.getTime()) || Number.isNaN(checkOut.getTime())) return 0;
 
-  const startOfCheckInDay = new Date(
-    checkIn.getFullYear(),
-    checkIn.getMonth(),
-    checkIn.getDate()
-  ).getTime();
-  const startMinutes = (checkIn.getTime() - startOfCheckInDay) / 60_000;
-  let endMinutes = (checkOut.getTime() - startOfCheckInDay) / 60_000;
+  // 설정 타임존 기준 벽시계 분(分)으로 환산 (기기 로컬 타임존 무관)
+  const startMinutes = getZonedClockMinutes(checkIn, timeZone);
+  let endMinutes = getZonedClockMinutes(checkOut, timeZone);
   if (endMinutes <= startMinutes) endMinutes += 1440;
 
   let breakMinutes = 0;
@@ -44,4 +42,138 @@ export function calculateWorkedHours(
   }
 
   return Math.max(0, (endMinutes - startMinutes - breakMinutes) / 60);
+}
+
+/**
+ * 해당 근무일이 휴일인지 판정한다.
+ * 기준: 일요일(getDay() === 0) 또는 holidays 컬렉션에 등록된 날짜.
+ */
+export function isHolidayDate(workDate: string, holidays: Holiday[]): boolean {
+  const parsed = new Date(`${workDate}T00:00:00`);
+  if (!Number.isNaN(parsed.getTime()) && parsed.getDay() === 0) return true;
+  return holidays.some((h) => h.date === workDate);
+}
+
+export interface DailyBreakdown {
+  workHours: number; // 총 근무(점심 제외)
+  regularHours: number; // 소정근로 (평일, standardDailyHours 한도)
+  overtimeHours: number; // 연장 (평일, 소정 초과분)
+  holidayHours: number; // 휴일근로 (휴일, standardDailyHours 한도)
+  holidayOvertimeHours: number; // 휴일연장 (휴일, 소정 초과분)
+  nightHours: number; // 야간 (22~06시 겹침, 가산 개념이라 위 값과 중첩됨)
+  manDays: number; // 공수 (일용/사업소득자용)
+}
+
+const EMPTY_BREAKDOWN: DailyBreakdown = {
+  workHours: 0,
+  regularHours: 0,
+  overtimeHours: 0,
+  holidayHours: 0,
+  holidayOvertimeHours: 0,
+  nightHours: 0,
+  manDays: 0,
+};
+
+/**
+ * 출퇴근 시각을 설정값 기준으로 일별 근로시간/공수로 분해한다.
+ *
+ * 주의: 정밀한 노동법 산정(주 단위 연장 합산, 통상임금 환산 등)이 아니라
+ * 설정값(소정시간/야간시간대/공수규칙) 기반의 화면 표시용 근사 분해다.
+ */
+export function calculateDailyBreakdown(
+  checkInISO: string | null,
+  checkOutISO: string | null,
+  isHoliday: boolean,
+  employmentType: Worker["employmentType"],
+  settings: AllSettings
+): DailyBreakdown {
+  if (!checkInISO || !checkOutISO) return { ...EMPTY_BREAKDOWN };
+
+  const checkIn = new Date(checkInISO);
+  const checkOut = new Date(checkOutISO);
+  if (Number.isNaN(checkIn.getTime()) || Number.isNaN(checkOut.getTime())) {
+    return { ...EMPTY_BREAKDOWN };
+  }
+
+  const { workTime, overtimeRules, dailyWorkerRules } = settings;
+  const timeZone = getAppTimeZone(settings);
+
+  // 설정 타임존 기준 벽시계 분(分)으로 환산 (자정 넘김은 +1440)
+  const startMinutes = getZonedClockMinutes(checkIn, timeZone);
+  let endMinutes = getZonedClockMinutes(checkOut, timeZone);
+  if (endMinutes <= startMinutes) endMinutes += 1440;
+
+  // 점심시간 차감
+  let breakMinutes = 0;
+  if (workTime.lunchStart && workTime.lunchEnd) {
+    const lunchStart = hhmmToMinutes(workTime.lunchStart);
+    let lunchEnd = hhmmToMinutes(workTime.lunchEnd);
+    if (lunchEnd <= lunchStart) lunchEnd += 1440;
+    breakMinutes += overlapMinutes(startMinutes, endMinutes, lunchStart, lunchEnd);
+    if (endMinutes > 1440) {
+      breakMinutes += overlapMinutes(startMinutes, endMinutes, lunchStart + 1440, lunchEnd + 1440);
+    }
+  }
+
+  const netHours = Math.max(0, (endMinutes - startMinutes - breakMinutes) / 60);
+
+  // 야간 시간대(예: 22:00~06:00) 겹침 — 가산 개념이라 별도 집계
+  const nightStart = hhmmToMinutes(overtimeRules.nightStart);
+  let nightEnd = hhmmToMinutes(overtimeRules.nightEnd);
+  if (nightEnd <= nightStart) nightEnd += 1440;
+  let nightMinutes = overlapMinutes(startMinutes, endMinutes, nightStart, nightEnd);
+  // 전날 야간대(00:00 이전부터 이어지는 06:00까지)와 익일 야간대 모두 검사
+  nightMinutes += overlapMinutes(startMinutes, endMinutes, nightStart - 1440, nightEnd - 1440);
+  nightMinutes += overlapMinutes(startMinutes, endMinutes, nightStart + 1440, nightEnd + 1440);
+  const nightHours = Math.max(0, nightMinutes / 60);
+
+  // ── 일용/사업소득자: 공수(man-day) 분해 ──
+  if (employmentType === "daily" || employmentType === "business") {
+    let manDays = 1.0; // 출퇴근 기록이 있으면 기본 1.0공수
+
+    const inWindow = (startHHMM: string, endHHMM: string): boolean => {
+      const ws = hhmmToMinutes(startHHMM);
+      let we = hhmmToMinutes(endHHMM);
+      if (we <= ws) we += 1440;
+      return overlapMinutes(startMinutes, endMinutes, ws, we) > 0;
+    };
+
+    if (inWindow(dailyWorkerRules.earlyMorningStart, dailyWorkerRules.earlyMorningEnd)) {
+      manDays += dailyWorkerRules.earlyMorningWorkDays;
+    }
+    if (inWindow(dailyWorkerRules.afternoonOvertimeStart, dailyWorkerRules.afternoonOvertimeEnd)) {
+      manDays += dailyWorkerRules.afternoonOvertimeWorkDays;
+    }
+    if (inWindow(dailyWorkerRules.eveningOvertimeStart, dailyWorkerRules.eveningOvertimeEnd)) {
+      manDays += dailyWorkerRules.eveningOvertimeWorkDays;
+    }
+    if (isHoliday) manDays *= dailyWorkerRules.holidayRate;
+
+    return {
+      ...EMPTY_BREAKDOWN,
+      workHours: netHours,
+      nightHours,
+      manDays,
+    };
+  }
+
+  // ── 월급/시급: 시간 분해 ──
+  const standardHours = workTime.standardDailyHours || 8;
+  if (isHoliday) {
+    return {
+      ...EMPTY_BREAKDOWN,
+      workHours: netHours,
+      holidayHours: Math.min(netHours, standardHours),
+      holidayOvertimeHours: Math.max(0, netHours - standardHours),
+      nightHours,
+    };
+  }
+
+  return {
+    ...EMPTY_BREAKDOWN,
+    workHours: netHours,
+    regularHours: Math.min(netHours, standardHours),
+    overtimeHours: Math.max(0, netHours - standardHours),
+    nightHours,
+  };
 }

@@ -3,6 +3,7 @@ import type { User } from "@supabase/supabase-js";
 import { supabase } from "../supabase";
 import { AllSettings, Worker, Holiday, SettingsHistory } from "../types";
 import { calculateWorkedHours } from "../utils/attendanceHours";
+import { getAppTimeZone, getZonedYmd } from "../utils/datetime";
 import { adminIdToEmail, workerIdToEmail, roleFromEmail, AuthRole } from "../utils/auth";
 
 const LOGIN_MODE_KEY = "checkin-login-mode";
@@ -499,8 +500,8 @@ export const SupabaseProvider: React.FC<{ children: React.ReactNode }> = ({ chil
       setTodayAttendance(null);
       return;
     }
-    const today = new Date();
-    const ymd = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, "0")}-${String(today.getDate()).padStart(2, "0")}`;
+    // 서버(submit_attendance)가 Asia/Seoul 기준으로 work_date 를 찍으므로 동일 타임존으로 오늘을 구한다.
+    const ymd = getZonedYmd(new Date(), getAppTimeZone(settings));
 
     const { data, error } = await supabase
       .from("attendance")
@@ -523,7 +524,7 @@ export const SupabaseProvider: React.FC<{ children: React.ReactNode }> = ({ chil
           }
         : { id: null, workDate: ymd, checkInAt: null, checkOutAt: null }
     );
-  }, [user]);
+  }, [user, settings]);
 
   useEffect(() => {
     refreshTodayAttendance();
@@ -580,7 +581,8 @@ export const SupabaseProvider: React.FC<{ children: React.ReactNode }> = ({ chil
       const workHours = calculateWorkedHours(
         row.check_in_at,
         row.check_out_at,
-        settings?.workTime
+        settings?.workTime,
+        getAppTimeZone(settings)
       );
       return {
         id: row.id,

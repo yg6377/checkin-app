@@ -60,6 +60,7 @@ export const DEFAULT_SETTINGS: AllSettings = {
     siteLocation: { lat: 37.1234, lng: 126.4567 },
     allowedRadius: 100,
     paymentDay: 15,
+    timezone: "Asia/Seoul",
   },
   annualLeave: {
     firstYearDays: 11,
