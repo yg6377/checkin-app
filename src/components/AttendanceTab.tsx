@@ -59,10 +59,9 @@ export const AttendanceTab: React.FC = () => {
   const tz = getAppTimeZone(settings);
   // 설정 타임존 기준 "오늘" (미체크/필터 판정용)
   const todayYmd = useMemo(() => getZonedYmd(new Date(), tz), [tz]);
-  const today = useMemo(() => new Date(), []);
-  const [preset, setPreset] = useState<Preset>("thisMonth");
-  const [fromDate, setFromDate] = useState<string>(ymd(startOfMonth(today)));
-  const [toDate, setToDate] = useState<string>(ymd(endOfMonth(today)));
+  const [preset, setPreset] = useState<Preset>("today");
+  const [fromDate, setFromDate] = useState<string>(todayYmd);
+  const [toDate, setToDate] = useState<string>(todayYmd);
   const [workerId, setWorkerId] = useState<string>("all");
 
   const [records, setRecords] = useState<AttendanceRecord[]>([]);
@@ -145,7 +144,7 @@ export const AttendanceTab: React.FC = () => {
     ).length;
     const uniqueWorkers = new Set(records.map((r) => r.workerId)).size;
     return { totalDays, totalHours, missingCheckout, uniqueWorkers };
-  }, [records, today]);
+  }, [records, todayYmd]);
 
   const isMissingCheckout = (r: AttendanceRecord) =>
     r.checkInAt && !r.checkOutAt && r.workDate < todayYmd;
