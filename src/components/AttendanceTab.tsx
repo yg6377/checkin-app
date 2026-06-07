@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useState } from "react";
-import { useApp, AttendanceRecord } from "../context/SupabaseContext";
+import { useApp, AttendanceRecord, AttendanceBreakdownValues } from "../context/SupabaseContext";
 import {
   CalendarRange,
   Users,
@@ -19,6 +19,8 @@ import {
   X,
   ChevronDown,
   ChevronRight,
+  Save,
+  CheckCircle2,
 } from "lucide-react";
 import { exportLaborLedger, exportAttendanceBook, exportPayslips } from "../utils/excelExporter";
 import { calculateDailyBreakdown, isHolidayDate } from "../utils/attendanceHours";
@@ -38,6 +40,11 @@ function fmtHours(h: number): string {
   return `${hours}시간 ${minutes}분`;
 }
 
+function fmtShortHours(h: number): string {
+  if (h <= 0) return "-";
+  return `${Number.isInteger(h) ? h.toFixed(0) : h.toFixed(1)}h`;
+}
+
 function startOfMonth(d: Date): Date {
   return new Date(d.getFullYear(), d.getMonth(), 1);
 }
@@ -52,7 +59,7 @@ type Preset = "today" | "thisMonth" | "lastMonth" | "last7" | "custom";
 // AttendanceTab
 // ============================================================
 export const AttendanceTab: React.FC = () => {
-  const { workers, fetchAttendance, settings, holidays, role, upsertAttendanceByAdmin, deleteAttendanceByAdmin } = useApp();
+  const { workers, fetchAttendance, settings, holidays, role, upsertAttendanceByAdmin, deleteAttendanceByAdmin, confirmAttendanceBreakdown } = useApp();
   const [exporting, setExporting] = useState<"" | "ledger" | "book" | "payslip">("");
   const [exportError, setExportError] = useState("");
 
@@ -68,6 +75,9 @@ export const AttendanceTab: React.FC = () => {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
   const [expandedId, setExpandedId] = useState<string | null>(null);
+  const [confirmDrafts, setConfirmDrafts] = useState<Record<string, AttendanceBreakdownValues>>({});
+  const [confirmSavingId, setConfirmSavingId] = useState<string | null>(null);
+  const [confirmError, setConfirmError] = useState<Record<string, string>>({});
 
   // workers.id → Worker (근태 레코드의 workerId와 매칭해 고용 유형 판별)
   const workerById = useMemo(() => {
@@ -149,6 +159,83 @@ export const AttendanceTab: React.FC = () => {
   const isMissingCheckout = (r: AttendanceRecord) =>
     r.checkInAt && !r.checkOutAt && r.workDate < todayYmd;
 
+  const getRecordBreakdown = (r: AttendanceRecord) => {
+    const worker = workerById.get(r.workerId);
+    if (!worker || !r.checkInAt || !r.checkOutAt) return null;
+
+    const holiday = isHolidayDate(r.workDate, holidays);
+    const breakdown = calculateDailyBreakdown(
+      r.checkInAt,
+      r.checkOutAt,
+      holiday,
+      worker.employmentType,
+      settings
+    );
+    const isManDay = worker.employmentType === "daily" || worker.employmentType === "business";
+
+    return { worker, holiday, breakdown, isManDay };
+  };
+
+  const getAutoConfirmValues = (r: AttendanceRecord): AttendanceBreakdownValues => {
+    const detail = getRecordBreakdown(r);
+    const bd = detail?.breakdown;
+    return {
+      regularHours: bd?.regularHours || 0,
+      overtimeHours: bd?.overtimeHours || 0,
+      holidayHours: bd?.holidayHours || 0,
+      holidayOvertimeHours: bd?.holidayOvertimeHours || 0,
+      nightHours: bd?.nightHours || 0,
+      manDays: bd?.manDays || 0,
+    };
+  };
+
+  const getEffectiveConfirmValues = (r: AttendanceRecord): AttendanceBreakdownValues => {
+    return r.confirmedBreakdown || getAutoConfirmValues(r);
+  };
+
+  const effectiveWorkHours = (r: AttendanceRecord, values: AttendanceBreakdownValues): number => {
+    if (!r.confirmedBreakdown) return getRecordBreakdown(r)?.breakdown.workHours || r.workHours;
+    return values.regularHours + values.overtimeHours + values.holidayHours + values.holidayOvertimeHours;
+  };
+
+  const updateConfirmDraft = (recordId: string, key: keyof AttendanceBreakdownValues, value: string) => {
+    const parsed = Math.max(0, Number(value) || 0);
+    setConfirmDrafts((prev) => ({
+      ...prev,
+      [recordId]: {
+        ...(prev[recordId] || getEffectiveConfirmValues(records.find((r) => r.id === recordId)!)),
+        [key]: parsed,
+      },
+    }));
+  };
+
+  const resetConfirmDraftToAuto = (record: AttendanceRecord) => {
+    setConfirmDrafts((prev) => ({ ...prev, [record.id]: getAutoConfirmValues(record) }));
+    setConfirmError((prev) => ({ ...prev, [record.id]: "" }));
+  };
+
+  const saveConfirmedBreakdown = async (record: AttendanceRecord) => {
+    const draft = confirmDrafts[record.id] || getEffectiveConfirmValues(record);
+    setConfirmSavingId(record.id);
+    setConfirmError((prev) => ({ ...prev, [record.id]: "" }));
+    try {
+      await confirmAttendanceBreakdown(record, draft);
+      setConfirmDrafts((prev) => {
+        const next = { ...prev };
+        delete next[record.id];
+        return next;
+      });
+      await runQuery();
+    } catch (err: any) {
+      setConfirmError((prev) => ({
+        ...prev,
+        [record.id]: err?.message || "근태 정산 확정 저장 중 오류가 발생했습니다.",
+      }));
+    } finally {
+      setConfirmSavingId(null);
+    }
+  };
+
   // 펼침 영역: 고용 유형에 따라 시간 분해(월급/시급) 또는 공수(일용/사업소득자) 표시
   const renderBreakdown = (r: AttendanceRecord) => {
     const worker = workerById.get(r.workerId);
@@ -167,39 +254,135 @@ export const AttendanceTab: React.FC = () => {
       );
     }
 
-    const holiday = isHolidayDate(r.workDate, holidays);
-    const bd = calculateDailyBreakdown(
-      r.checkInAt,
-      r.checkOutAt,
-      holiday,
-      worker.employmentType,
-      settings
-    );
+    const detail = getRecordBreakdown(r);
+    if (!detail) return null;
+    const { breakdown: bd, holiday, isManDay } = detail;
+    const effective = getEffectiveConfirmValues(r);
+    const draft = confirmDrafts[r.id] || effective;
+    const isConfirmed = Boolean(r.confirmedBreakdown);
+    const savedAt = r.confirmedAt ? formatZonedTime(r.confirmedAt, tz) : "";
+    const saveError = confirmError[r.id];
 
-    const isManDay = worker.employmentType === "daily" || worker.employmentType === "business";
-
-    if (isManDay) {
-      return (
-        <div className="flex items-center gap-4">
-          <BreakdownCell label="공수" value={`${bd.manDays.toFixed(2)} 공수`} strong />
-          <BreakdownCell label="근무" value={fmtHours(bd.workHours)} />
-          {bd.nightHours > 0 && <BreakdownCell label="야간" value={fmtHours(bd.nightHours)} />}
-          {holiday && (
-            <span className="text-[10px] px-2 py-0.5 rounded bg-amber-100 text-amber-700 font-bold border border-amber-200">
-              휴일
+    return (
+      <div className="space-y-3">
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <div className="flex flex-wrap items-center gap-2">
+            <span className="text-[11px] font-bold text-slate-600">자동 산정 참고값</span>
+            {holiday && (
+              <span className="text-[10px] px-2 py-0.5 rounded bg-amber-100 text-amber-700 font-bold border border-amber-200">
+                휴일
+              </span>
+            )}
+            {isManDay && (
+              <span className="text-[10px] px-2 py-0.5 rounded bg-blue-100 text-blue-700 font-bold border border-blue-200">
+                공수 정산 대상
+              </span>
+            )}
+          </div>
+          {isConfirmed && (
+            <span className="inline-flex items-center gap-1 text-[10px] px-2 py-0.5 rounded bg-emerald-100 text-emerald-700 font-bold border border-emerald-200">
+              <CheckCircle2 className="w-3 h-3" />
+              확정됨{savedAt ? ` · ${savedAt}` : ""}
             </span>
           )}
         </div>
-      );
-    }
 
-    return (
-      <div className="grid grid-cols-2 md:grid-cols-5 gap-3">
-        <BreakdownCell label="근무" value={fmtHours(bd.workHours)} strong />
-        <BreakdownCell label="연장시간" value={fmtHours(bd.overtimeHours)} />
-        <BreakdownCell label="휴일근로시간" value={fmtHours(bd.holidayHours)} />
-        <BreakdownCell label="휴일연장시간" value={fmtHours(bd.holidayOvertimeHours)} />
-        <BreakdownCell label="야간근로시간" value={fmtHours(bd.nightHours)} />
+        <div className="grid grid-cols-2 md:grid-cols-6 gap-3">
+          <BreakdownCell label="근무" value={fmtHours(bd.workHours)} strong />
+          <BreakdownCell label="기본" value={fmtHours(bd.regularHours)} />
+          <BreakdownCell label="연장" value={fmtHours(bd.overtimeHours)} />
+          <BreakdownCell label="휴일" value={fmtHours(bd.holidayHours)} />
+          <BreakdownCell label="휴일연장" value={fmtHours(bd.holidayOvertimeHours)} />
+          <BreakdownCell label={isManDay ? "공수" : "야간"} value={isManDay ? `${bd.manDays.toFixed(2)} 공수` : fmtHours(bd.nightHours)} />
+        </div>
+
+        {role === "admin" ? (
+          <div className="rounded-lg border border-slate-200 bg-white p-3 space-y-3">
+            <div className="flex items-center justify-between gap-2">
+              <div>
+                <p className="text-xs font-extrabold text-slate-900">관리자 정산 확정</p>
+                <p className="text-[10px] text-slate-500 mt-0.5">
+                  저장된 확정값은 급여명세서와 엑셀 산정에서 자동값보다 우선 적용됩니다.
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={() => resetConfirmDraftToAuto(r)}
+                className="px-2 py-1 rounded border border-slate-200 bg-slate-50 text-[10px] font-semibold text-slate-600 hover:bg-slate-100"
+              >
+                자동값 불러오기
+              </button>
+            </div>
+
+            <div className="grid grid-cols-2 md:grid-cols-6 gap-2">
+              <ConfirmNumberInput
+                label="기본"
+                suffix="h"
+                value={draft.regularHours}
+                onChange={(v) => updateConfirmDraft(r.id, "regularHours", v)}
+              />
+              <ConfirmNumberInput
+                label="연장"
+                suffix="h"
+                value={draft.overtimeHours}
+                onChange={(v) => updateConfirmDraft(r.id, "overtimeHours", v)}
+              />
+              <ConfirmNumberInput
+                label="야간"
+                suffix="h"
+                value={draft.nightHours}
+                onChange={(v) => updateConfirmDraft(r.id, "nightHours", v)}
+              />
+              <ConfirmNumberInput
+                label="휴일"
+                suffix="h"
+                value={draft.holidayHours}
+                onChange={(v) => updateConfirmDraft(r.id, "holidayHours", v)}
+              />
+              <ConfirmNumberInput
+                label="휴일연장"
+                suffix="h"
+                value={draft.holidayOvertimeHours}
+                onChange={(v) => updateConfirmDraft(r.id, "holidayOvertimeHours", v)}
+              />
+              <ConfirmNumberInput
+                label="공수"
+                suffix="공수"
+                value={draft.manDays}
+                step="0.25"
+                onChange={(v) => updateConfirmDraft(r.id, "manDays", v)}
+              />
+            </div>
+
+            {saveError && (
+              <div className="p-2 bg-rose-50 border border-rose-200 rounded text-[11px] text-rose-700 flex items-center gap-1.5">
+                <AlertCircle className="w-3.5 h-3.5" />
+                {saveError}
+              </div>
+            )}
+
+            <div className="flex justify-end">
+              <button
+                type="button"
+                onClick={() => void saveConfirmedBreakdown(r)}
+                disabled={confirmSavingId === r.id}
+                className="px-3 py-1.5 text-xs font-bold rounded bg-slate-900 text-white hover:bg-slate-800 disabled:opacity-50 flex items-center gap-1.5"
+              >
+                {confirmSavingId === r.id ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Save className="w-3.5 h-3.5" />}
+                정산값 확정 저장
+              </button>
+            </div>
+          </div>
+        ) : isConfirmed ? (
+          <div className="grid grid-cols-2 md:grid-cols-6 gap-3">
+            <BreakdownCell label="확정 기본" value={fmtHours(effective.regularHours)} />
+            <BreakdownCell label="확정 연장" value={fmtHours(effective.overtimeHours)} />
+            <BreakdownCell label="확정 야간" value={fmtHours(effective.nightHours)} />
+            <BreakdownCell label="확정 휴일" value={fmtHours(effective.holidayHours)} />
+            <BreakdownCell label="확정 휴일연장" value={fmtHours(effective.holidayOvertimeHours)} />
+            <BreakdownCell label="확정 공수" value={effective.manDays > 0 ? `${effective.manDays.toFixed(2)} 공수` : "-"} />
+          </div>
+        ) : null}
       </div>
     );
   };
@@ -354,7 +537,7 @@ export const AttendanceTab: React.FC = () => {
   };
 
   return (
-    <div className="space-y-4">
+    <div className="min-w-0 space-y-4">
       {/* 필터 바 */}
       <div className="bg-white p-4 rounded-lg border border-slate-200 shadow-xs space-y-3">
         <div className="flex items-center gap-2 text-xs font-bold text-slate-700">
@@ -542,17 +725,142 @@ export const AttendanceTab: React.FC = () => {
         </div>
       )}
 
-      {/* 테이블 */}
-      <div className="bg-white rounded-lg border border-slate-200 shadow-xs overflow-hidden">
-        <div className="overflow-x-auto">
-          <table className="min-w-full text-xs">
+      {/* 모바일 카드 목록 (sm 미만) */}
+      <div className="sm:hidden space-y-2.5">
+        {loading ? (
+          <div className="bg-white rounded-lg border border-slate-200 py-10 text-center text-slate-400 text-xs">
+            <Loader2 className="w-5 h-5 animate-spin inline mr-2" />
+            조회 중...
+          </div>
+        ) : records.length === 0 ? (
+          <div className="bg-white rounded-lg border border-slate-200 py-10 text-center text-slate-400 text-xs">
+            조회 결과가 없습니다.
+          </div>
+        ) : (
+          records.map((r) => {
+            const detail = getRecordBreakdown(r);
+            const bd = detail?.breakdown;
+            const effective = getEffectiveConfirmValues(r);
+            const isConfirmed = Boolean(r.confirmedBreakdown);
+            const displayWorkHours = effectiveWorkHours(r, effective);
+            return (
+              <div
+                key={r.id}
+                className={`bg-white rounded-lg border shadow-xs overflow-hidden ${
+                  isMissingCheckout(r) ? "border-rose-200" : "border-slate-200"
+                }`}
+              >
+                <button
+                  type="button"
+                  onClick={() => setExpandedId((prev) => (prev === r.id ? null : r.id))}
+                  className="w-full text-left p-3.5"
+                >
+                  <div className="flex items-start justify-between gap-2">
+                    <div className="min-w-0">
+                      <div className="font-mono text-xs font-bold text-slate-800">{r.workDate}</div>
+                      <div className="mt-0.5 truncate">
+                        <span className="font-mono text-[10px] text-slate-400">{r.workerCode}</span>{" "}
+                        <span className="font-semibold text-slate-800 text-sm">{r.workerName}</span>
+                      </div>
+                    </div>
+                    <div className="flex items-center gap-1.5 shrink-0">
+                      {isMissingCheckout(r) ? (
+                        <span className="text-[10px] px-2 py-0.5 rounded bg-rose-100 text-rose-700 font-bold border border-rose-200">
+                          퇴근 누락
+                        </span>
+                      ) : r.checkInAt && r.checkOutAt ? (
+                        <span className="text-[10px] px-2 py-0.5 rounded bg-emerald-100 text-emerald-700 font-bold border border-emerald-200">
+                          정상
+                        </span>
+                      ) : (
+                        <span className="text-[10px] px-2 py-0.5 rounded bg-slate-100 text-slate-600 font-semibold border border-slate-200">
+                          {r.status === "absent" ? "결근" : "근무 중"}
+                        </span>
+                      )}
+                      {expandedId === r.id ? (
+                        <ChevronDown className="w-4 h-4 text-slate-400" />
+                      ) : (
+                        <ChevronRight className="w-4 h-4 text-slate-400" />
+                      )}
+                    </div>
+                  </div>
+
+                  <div className="mt-2.5 flex items-center gap-3 text-xs font-mono">
+                    <span className="inline-flex items-center gap-1 text-emerald-700">
+                      <LogIn className="w-3 h-3" />
+                      {formatZonedTime(r.checkInAt, tz)}
+                    </span>
+                    <span className={`inline-flex items-center gap-1 ${r.checkOutAt ? "text-rose-700" : "text-slate-300"}`}>
+                      <LogOut className="w-3 h-3" />
+                      {formatZonedTime(r.checkOutAt, tz)}
+                    </span>
+                  </div>
+
+                  <div className="mt-2.5 grid grid-cols-4 gap-1.5 text-center">
+                    {[
+                      { label: "근무", value: displayWorkHours > 0 ? fmtShortHours(displayWorkHours) : bd ? fmtShortHours(bd.workHours) : r.workHours > 0 ? fmtShortHours(r.workHours) : "-" },
+                      { label: "연장", value: isConfirmed ? fmtShortHours(effective.overtimeHours) : bd ? fmtShortHours(bd.overtimeHours) : "-" },
+                      { label: "야간", value: isConfirmed ? fmtShortHours(effective.nightHours) : bd ? fmtShortHours(bd.nightHours) : "-" },
+                      { label: "공수", value: effective.manDays > 0 ? effective.manDays.toFixed(2) : detail?.isManDay && bd && bd.manDays > 0 ? bd.manDays.toFixed(2) : "-" },
+                    ].map((cell) => (
+                      <div key={cell.label} className="rounded border border-slate-150 bg-slate-50 px-1 py-1.5">
+                        <div className="text-[9px] font-bold uppercase tracking-wider text-slate-400">{cell.label}</div>
+                        <div className="mt-0.5 font-mono text-[11px] font-bold text-slate-800">{cell.value}</div>
+                      </div>
+                    ))}
+                  </div>
+                </button>
+
+                {role === "admin" && (
+                  <div className="flex gap-2 px-3.5 pb-3">
+                    <button
+                      onClick={() => openManualModal(r)}
+                      className="flex-1 inline-flex items-center justify-center gap-1 px-2 py-2 text-[11px] font-semibold rounded border border-slate-200 bg-white text-slate-700 hover:bg-slate-50"
+                    >
+                      <Pencil className="w-3 h-3" />
+                      수정
+                    </button>
+                    <button
+                      onClick={() => void handleDeleteRecord(r)}
+                      className="flex-1 inline-flex items-center justify-center gap-1 px-2 py-2 text-[11px] font-semibold rounded border border-rose-200 bg-rose-50 text-rose-700 hover:bg-rose-100"
+                    >
+                      <Trash2 className="w-3 h-3" />
+                      삭제
+                    </button>
+                  </div>
+                )}
+
+                {expandedId === r.id && (
+                  <div className="border-t border-slate-200 bg-slate-50 px-3.5 py-3">
+                    {renderBreakdown(r)}
+                  </div>
+                )}
+              </div>
+            );
+          })
+        )}
+        <div className="px-1 pt-0.5 text-[10px] text-slate-500 font-mono flex items-center gap-2">
+          <TrendingUp className="w-3 h-3" />
+          {fromDate} ~ {toDate} · 총 {records.length} 건
+        </div>
+      </div>
+
+      {/* 테이블 (sm 이상) */}
+      <div className="hidden sm:block min-w-0 bg-white rounded-lg border border-slate-200 shadow-xs overflow-hidden">
+        <div className="w-full overflow-x-auto">
+          <table className="w-full min-w-[1240px] text-xs">
             <thead className="bg-slate-50 border-b border-slate-200">
               <tr>
                 <Th>날짜</Th>
                 <Th>사번 / 이름</Th>
                 <Th className="text-center">출근</Th>
                 <Th className="text-center">퇴근</Th>
-                <Th className="text-right">근무시간</Th>
+                <Th className="w-[72px] text-center">근무</Th>
+                <Th className="w-[72px] text-center">연장</Th>
+                <Th className="w-[72px] text-center">야간</Th>
+                <Th className="w-[72px] text-center">휴일</Th>
+                <Th className="w-[82px] text-center">휴일연장</Th>
+                <Th className="w-[72px] text-center">공수</Th>
                 <Th className="text-center">상태</Th>
                 {role === "admin" && <Th className="text-center">관리</Th>}
                 <Th className="w-8" />
@@ -561,20 +869,26 @@ export const AttendanceTab: React.FC = () => {
             <tbody>
               {loading ? (
                 <tr>
-                  <td colSpan={role === "admin" ? 8 : 7} className="text-center py-10 text-slate-400">
+                  <td colSpan={role === "admin" ? 13 : 12} className="text-center py-10 text-slate-400">
                     <Loader2 className="w-5 h-5 animate-spin inline mr-2" />
                     조회 중...
                   </td>
                 </tr>
               ) : records.length === 0 ? (
                 <tr>
-                  <td colSpan={role === "admin" ? 8 : 7} className="text-center py-10 text-slate-400">
+                  <td colSpan={role === "admin" ? 13 : 12} className="text-center py-10 text-slate-400">
                     조회 결과가 없습니다.
                   </td>
                 </tr>
               ) : (
-                records.map((r) => (
-                  <React.Fragment key={r.id}>
+                records.map((r) => {
+                  const detail = getRecordBreakdown(r);
+                  const bd = detail?.breakdown;
+                  const effective = getEffectiveConfirmValues(r);
+                  const isConfirmed = Boolean(r.confirmedBreakdown);
+                  const displayWorkHours = effectiveWorkHours(r, effective);
+                  return (
+                    <React.Fragment key={r.id}>
                   <tr
                     onClick={() => setExpandedId((prev) => (prev === r.id ? null : r.id))}
                     className={`border-b border-slate-100 hover:bg-slate-50 cursor-pointer ${
@@ -600,8 +914,23 @@ export const AttendanceTab: React.FC = () => {
                         {formatZonedTime(r.checkOutAt, tz)}
                       </span>
                     </Td>
-                    <Td className="text-right font-mono font-bold text-slate-800">
-                      {r.workHours > 0 ? fmtHours(r.workHours) : "-"}
+                    <Td className="text-center font-mono font-bold tabular-nums text-slate-800">
+                      {displayWorkHours > 0 ? fmtShortHours(displayWorkHours) : bd ? fmtShortHours(bd.workHours) : r.workHours > 0 ? fmtShortHours(r.workHours) : "-"}
+                    </Td>
+                    <Td className="text-center font-mono tabular-nums text-slate-700">
+                      {isConfirmed ? fmtShortHours(effective.overtimeHours) : bd ? fmtShortHours(bd.overtimeHours) : "-"}
+                    </Td>
+                    <Td className="text-center font-mono tabular-nums text-indigo-700">
+                      {isConfirmed ? fmtShortHours(effective.nightHours) : bd ? fmtShortHours(bd.nightHours) : "-"}
+                    </Td>
+                    <Td className="text-center font-mono tabular-nums text-amber-700">
+                      {isConfirmed ? fmtShortHours(effective.holidayHours) : bd ? fmtShortHours(bd.holidayHours) : "-"}
+                    </Td>
+                    <Td className="text-center font-mono tabular-nums text-orange-700">
+                      {isConfirmed ? fmtShortHours(effective.holidayOvertimeHours) : bd ? fmtShortHours(bd.holidayOvertimeHours) : "-"}
+                    </Td>
+                    <Td className="text-center font-mono font-bold tabular-nums text-blue-700">
+                      {effective.manDays > 0 ? effective.manDays.toFixed(2) : detail?.isManDay && bd && bd.manDays > 0 ? bd.manDays.toFixed(2) : "-"}
                     </Td>
                     <Td className="text-center">
                       {isMissingCheckout(r) ? (
@@ -654,13 +983,14 @@ export const AttendanceTab: React.FC = () => {
                   </tr>
                   {expandedId === r.id && (
                     <tr className="bg-slate-50 border-b border-slate-200">
-                      <td colSpan={role === "admin" ? 8 : 7} className="px-4 py-3">
+                      <td colSpan={role === "admin" ? 13 : 12} className="px-4 py-3">
                         {renderBreakdown(r)}
                       </td>
                     </tr>
                   )}
                   </React.Fragment>
-                ))
+                  );
+                })
               )}
             </tbody>
           </table>
@@ -886,13 +1216,38 @@ export const AttendanceTab: React.FC = () => {
 // 작은 헬퍼 컴포넌트
 // ============================================================
 const Th: React.FC<{ children: React.ReactNode; className?: string }> = ({ children, className }) => (
-  <th className={`px-3 py-2 text-left font-bold text-[10px] uppercase tracking-wider text-slate-500 ${className || ""}`}>
+  <th className={`border-l border-slate-200 first:border-l-0 px-3 py-2 text-left font-bold text-[10px] uppercase tracking-wider text-slate-500 ${className || ""}`}>
     {children}
   </th>
 );
 
 const Td: React.FC<{ children: React.ReactNode; className?: string }> = ({ children, className }) => (
-  <td className={`px-3 py-2.5 align-middle ${className || ""}`}>{children}</td>
+  <td className={`border-l border-slate-100 first:border-l-0 px-3 py-2.5 align-middle ${className || ""}`}>{children}</td>
+);
+
+const ConfirmNumberInput: React.FC<{
+  label: string;
+  value: number;
+  suffix: string;
+  onChange: (value: string) => void;
+  step?: string;
+}> = ({ label, value, suffix, onChange, step = "0.1" }) => (
+  <label className="block">
+    <span className="block text-[10px] font-bold text-slate-500 mb-1">{label}</span>
+    <div className="flex items-center rounded border border-slate-200 bg-white overflow-hidden focus-within:border-blue-400">
+      <input
+        type="number"
+        min="0"
+        step={step}
+        value={Number.isFinite(value) ? value : 0}
+        onChange={(e) => onChange(e.target.value)}
+        className="min-w-0 w-full px-2 py-1.5 text-xs font-mono text-right outline-none"
+      />
+      <span className="shrink-0 px-2 py-1.5 bg-slate-50 border-l border-slate-200 text-[10px] font-bold text-slate-400">
+        {suffix}
+      </span>
+    </div>
+  </label>
 );
 
 const BreakdownCell: React.FC<{ label: string; value: string; strong?: boolean }> = ({

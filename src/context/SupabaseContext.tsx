@@ -160,6 +160,7 @@ interface AppContextType {
   fetchAttendance: (q: AttendanceQuery) => Promise<AttendanceRecord[]>;
   upsertAttendanceByAdmin: (input: AdminAttendanceInput) => Promise<void>;
   deleteAttendanceByAdmin: (record: AttendanceRecord) => Promise<void>;
+  confirmAttendanceBreakdown: (record: AttendanceRecord, values: AttendanceBreakdownValues) => Promise<void>;
 }
 
 export interface WorkerCredentials {
@@ -185,6 +186,75 @@ export interface AttendanceRecord {
   checkOutAt: string | null;
   status: string;
   workHours: number;       // 계산값 (시간 단위)
+  confirmedBreakdown: AttendanceBreakdownValues | null;
+  confirmedAt: string | null;
+}
+
+export interface AttendanceBreakdownValues {
+  regularHours: number;
+  overtimeHours: number;
+  holidayHours: number;
+  holidayOvertimeHours: number;
+  nightHours: number;
+  manDays: number;
+}
+
+const EMPTY_CONFIRMED_BREAKDOWN: AttendanceBreakdownValues = {
+  regularHours: 0,
+  overtimeHours: 0,
+  holidayHours: 0,
+  holidayOvertimeHours: 0,
+  nightHours: 0,
+  manDays: 0,
+};
+
+function round2(n: number): number {
+  return Math.round((Number(n) || 0) * 100) / 100;
+}
+
+function segmentsToBreakdown(segments: any[] | null | undefined): AttendanceBreakdownValues | null {
+  if (!segments || segments.length === 0) return null;
+
+  const values = { ...EMPTY_CONFIRMED_BREAKDOWN };
+
+  segments.forEach((segment) => {
+    const type = segment.segment_type;
+    const hours = Number(segment.hours) || 0;
+    const manDays = Number(segment.man_days) || 0;
+
+    if (type === "standard") {
+      values.regularHours += hours;
+      values.manDays += manDays;
+    } else if (type === "weekday_ot" || type === "afternoon_ot" || type === "evening_ot" || type === "early_morning") {
+      values.overtimeHours += hours;
+      values.manDays += manDays;
+    } else if (type === "holiday") {
+      values.holidayHours += hours;
+      values.manDays += manDays;
+    } else if (type === "holiday_ot") {
+      values.holidayOvertimeHours += hours;
+      values.manDays += manDays;
+    } else if (type === "night") {
+      values.nightHours += hours;
+    }
+  });
+
+  return {
+    regularHours: round2(values.regularHours),
+    overtimeHours: round2(values.overtimeHours),
+    holidayHours: round2(values.holidayHours),
+    holidayOvertimeHours: round2(values.holidayOvertimeHours),
+    nightHours: round2(values.nightHours),
+    manDays: round2(values.manDays),
+  };
+}
+
+function latestSegmentTimestamp(segments: any[] | null | undefined): string | null {
+  if (!segments || segments.length === 0) return null;
+  return segments.reduce<string | null>((latest, segment) => {
+    if (!segment.created_at) return latest;
+    return !latest || segment.created_at > latest ? segment.created_at : latest;
+  }, null);
 }
 
 export interface AttendanceQuery {
@@ -561,7 +631,7 @@ export const SupabaseProvider: React.FC<{ children: React.ReactNode }> = ({ chil
     if (!user) return [];
     let query = supabase
       .from("attendance")
-      .select("id, worker_id, work_date, check_in_at, check_out_at, status, worker:workers(worker_id, name)")
+      .select("id, worker_id, work_date, check_in_at, check_out_at, status, worker:workers(worker_id, name), attendance_segments(segment_type, hours, man_days, created_at)")
       .gte("work_date", q.fromDate)
       .lte("work_date", q.toDate)
       .order("work_date", { ascending: false })
@@ -594,6 +664,8 @@ export const SupabaseProvider: React.FC<{ children: React.ReactNode }> = ({ chil
         checkOutAt: row.check_out_at,
         status: row.status,
         workHours: Math.max(0, workHours),
+        confirmedBreakdown: segmentsToBreakdown(row.attendance_segments),
+        confirmedAt: latestSegmentTimestamp(row.attendance_segments),
       };
     });
   };
@@ -662,6 +734,90 @@ export const SupabaseProvider: React.FC<{ children: React.ReactNode }> = ({ chil
     await loadHistory();
   };
 
+  const confirmAttendanceBreakdown = async (record: AttendanceRecord, values: AttendanceBreakdownValues) => {
+    if (!user) throw new Error("로그인이 필요합니다.");
+    if (role !== "admin") throw new Error("관리자 권한이 필요합니다.");
+    if (!record.checkInAt || !record.checkOutAt) {
+      throw new Error("출근/퇴근이 모두 기록된 근태만 확정할 수 있습니다.");
+    }
+
+    const clean: AttendanceBreakdownValues = {
+      regularHours: round2(Math.max(0, values.regularHours)),
+      overtimeHours: round2(Math.max(0, values.overtimeHours)),
+      holidayHours: round2(Math.max(0, values.holidayHours)),
+      holidayOvertimeHours: round2(Math.max(0, values.holidayOvertimeHours)),
+      nightHours: round2(Math.max(0, values.nightHours)),
+      manDays: round2(Math.max(0, values.manDays)),
+    };
+
+    const { data: previousRows, error: previousError } = await supabase
+      .from("attendance_segments")
+      .select("segment_type, hours, man_days, created_at")
+      .eq("attendance_id", record.id);
+    if (previousError) throw new Error(translateRpcError(previousError.message));
+
+    const { error: deleteError } = await supabase
+      .from("attendance_segments")
+      .delete()
+      .eq("attendance_id", record.id);
+    if (deleteError) throw new Error(translateRpcError(deleteError.message));
+
+    const baseRow = {
+      attendance_id: record.id,
+      start_at: record.checkInAt,
+      end_at: record.checkOutAt,
+    };
+    const rows = [
+      {
+        ...baseRow,
+        segment_type: "standard",
+        hours: clean.regularHours,
+        man_days: clean.manDays,
+        rate_multiplier: 1,
+      },
+      clean.overtimeHours > 0 && {
+        ...baseRow,
+        segment_type: "weekday_ot",
+        hours: clean.overtimeHours,
+        man_days: 0,
+        rate_multiplier: settings?.overtimeRules.weekdayOvertimeRate ?? 1.5,
+      },
+      clean.holidayHours > 0 && {
+        ...baseRow,
+        segment_type: "holiday",
+        hours: clean.holidayHours,
+        man_days: 0,
+        rate_multiplier: settings?.overtimeRules.holidayRate ?? 1.5,
+      },
+      clean.holidayOvertimeHours > 0 && {
+        ...baseRow,
+        segment_type: "holiday_ot",
+        hours: clean.holidayOvertimeHours,
+        man_days: 0,
+        rate_multiplier: settings?.overtimeRules.holidayOvertimeRate ?? 2,
+      },
+      clean.nightHours > 0 && {
+        ...baseRow,
+        segment_type: "night",
+        hours: clean.nightHours,
+        man_days: 0,
+        rate_multiplier: settings?.overtimeRules.nightRate ?? 0.5,
+      },
+    ].filter(Boolean);
+
+    const { error: insertError } = await supabase.from("attendance_segments").insert(rows);
+    if (insertError) throw new Error(translateRpcError(insertError.message));
+
+    await logHistory({
+      category: "attendance",
+      action: previousRows && previousRows.length > 0 ? "update" : "create",
+      label: `근태 정산 확정: ${record.workDate} [${record.workerName || record.workerCode}]`,
+      fromValue: segmentsToBreakdown(previousRows) || {},
+      toValue: clean,
+    });
+    await loadHistory();
+  };
+
   // ─── Holidays ──────────────────────────────────────────
   const addHoliday = async (holiday: Omit<Holiday, "id">) => {
     if (!user) return;
@@ -723,6 +879,7 @@ export const SupabaseProvider: React.FC<{ children: React.ReactNode }> = ({ chil
         fetchAttendance,
         upsertAttendanceByAdmin,
         deleteAttendanceByAdmin,
+        confirmAttendanceBreakdown,
       }}
     >
       {children}

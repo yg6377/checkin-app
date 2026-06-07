@@ -27,3 +27,13 @@
   padding-top: max(1rem, env(safe-area-inset-top));
   padding-bottom: max(1rem, env(safe-area-inset-bottom));
 }
+
+/* 모바일에서 입력 시 iOS 자동 확대(줌) 방지 — 폼 컨트롤 최소 16px 보장.
+   sm 미만(<640px)에만 적용되어 데스크톱 레이아웃에는 영향 없음. */
+@media (max-width: 639px) {
+  input:not([type="checkbox"]):not([type="radio"]),
+  select,
+  textarea {
+    font-size: 16px;
+  }
+}

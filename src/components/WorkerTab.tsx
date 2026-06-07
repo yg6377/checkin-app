@@ -363,7 +363,74 @@ export const WorkerTab: React.FC = () => {
           <p className="text-slate-500 text-xs">일치하는 근로자 기록이 없습니다.</p>
         </div>
       ) : (
-        <div className="bg-white rounded-lg border border-slate-200 overflow-x-auto">
+        <>
+        {/* 모바일 카드 목록 (sm 미만) */}
+        <div className="sm:hidden space-y-2.5">
+          {filteredWorkers.map((w) => (
+            <div
+              key={w.id || w.workerId}
+              className="bg-white rounded-lg border border-slate-200 p-3.5 shadow-xs"
+            >
+              <div className="flex items-start justify-between gap-2">
+                <div className="min-w-0">
+                  <div className="flex items-center gap-1.5 flex-wrap">
+                    <span className="font-semibold text-slate-900 text-sm">{w.name}</span>
+                    {w.englishName && (
+                      <span className="text-[11px] text-slate-400">({w.englishName})</span>
+                    )}
+                    {(w.deductionSettings.housingFee > 0 || w.deductionSettings.cashAdvance > 0) && (
+                      <span className="inline-flex items-center gap-0.5 text-[9px] text-rose-600 font-bold">
+                        <ShieldAlert className="w-2.5 h-2.5" />공제
+                      </span>
+                    )}
+                  </div>
+                  <span className="font-mono text-[10px] text-slate-500 font-bold">{w.workerId}</span>
+                </div>
+                {w.employmentType === "salary" && <span className="shrink-0 inline-flex justify-center text-[10px] px-1.5 py-0.5 rounded font-bold bg-blue-50 text-blue-700 border border-blue-100">월급제</span>}
+                {w.employmentType === "hourly" && <span className="shrink-0 inline-flex justify-center text-[10px] px-1.5 py-0.5 rounded font-bold bg-emerald-50 text-emerald-700 border border-emerald-100">시급제</span>}
+                {w.employmentType === "daily" && <span className="shrink-0 inline-flex justify-center text-[10px] px-1.5 py-0.5 rounded font-bold bg-orange-50 text-orange-700 border border-orange-100">일용직</span>}
+                {w.employmentType === "business" && <span className="shrink-0 inline-flex justify-center text-[10px] px-1.5 py-0.5 rounded font-bold bg-purple-50 text-purple-700 border border-purple-100">사업소득</span>}
+              </div>
+
+              <dl className="mt-2.5 space-y-1.5 text-xs">
+                <div className="flex justify-between gap-3">
+                  <dt className="text-slate-400 shrink-0">부서/직급/직무</dt>
+                  <dd className="text-slate-600 text-right truncate">{w.department || "—"} / {w.duty || "—"} / {w.job || "—"}</dd>
+                </div>
+                <div className="flex justify-between gap-3">
+                  <dt className="text-slate-400 shrink-0">연락처</dt>
+                  <dd className="font-mono text-slate-700">{w.phone}</dd>
+                </div>
+                <div className="flex justify-between gap-3">
+                  <dt className="text-slate-400 shrink-0">급여 단가</dt>
+                  <dd className="font-mono text-[11px]">
+                    {w.employmentType === "salary" && <span className="text-blue-600 font-bold">₩{w.salarySettings.monthlyBase.toLocaleString()}<span className="text-slate-400 font-normal">/월</span></span>}
+                    {w.employmentType === "hourly" && <span className="text-emerald-600 font-bold">₩{w.salarySettings.hourlyRate.toLocaleString()}<span className="text-slate-400 font-normal">/H</span></span>}
+                    {(w.employmentType === "daily" || w.employmentType === "business") && <span className="text-orange-600 font-bold">₩{w.salarySettings.dailyRate.toLocaleString()}<span className="text-slate-400 font-normal">/D</span></span>}
+                  </dd>
+                </div>
+              </dl>
+
+              <div className="flex gap-2 mt-3 pt-3 border-t border-slate-100">
+                <button
+                  onClick={() => handleEdit(w)}
+                  className="flex-1 flex items-center justify-center gap-1 text-xs px-2 py-2 font-semibold border border-slate-200 rounded text-slate-700 hover:bg-slate-100 transition cursor-pointer"
+                >
+                  <Edit2 className="w-3 h-3" />수정
+                </button>
+                <button
+                  onClick={() => handleDelete(w.id || w.workerId, w.workerId)}
+                  className="flex-1 flex items-center justify-center gap-1 text-xs px-2 py-2 font-bold text-rose-600 border border-rose-100 rounded bg-rose-50/20 hover:bg-rose-50 transition cursor-pointer"
+                >
+                  <Trash2 className="w-3 h-3" />제외
+                </button>
+              </div>
+            </div>
+          ))}
+        </div>
+
+        {/* 데스크톱 표 (sm 이상) */}
+        <div className="hidden sm:block bg-white rounded-lg border border-slate-200 overflow-x-auto">
           {/* Table header */}
           <div className="grid min-w-[980px] grid-cols-[80px_minmax(140px,1fr)_96px_minmax(190px,230px)_120px_110px_112px] gap-x-3 px-4 py-2 bg-slate-50 border-b border-slate-200 text-[10px] font-bold text-slate-400 uppercase tracking-wider">
             <span>사번</span>
@@ -434,12 +501,13 @@ export const WorkerTab: React.FC = () => {
             </div>
           ))}
         </div>
+        </>
       )}
 
       {/* MODAL & SIDE DRAWER DIALOG FOR CREATING / EDITING */}
       {isModalOpen && (
-        <div className="fixed inset-0 z-50 overflow-y-auto bg-black/40 backdrop-blur-sm flex items-center justify-center p-4">
-          <div className="bg-white rounded-xl shadow-2xl border border-gray-100 max-w-4xl w-full max-h-[90vh] overflow-hidden flex flex-col">
+        <div className="fixed inset-0 z-50 overflow-y-auto bg-black/40 backdrop-blur-sm flex items-stretch sm:items-center justify-center p-0 sm:p-4">
+          <div className="bg-white rounded-none sm:rounded-xl shadow-2xl border border-gray-100 max-w-4xl w-full h-full sm:h-auto max-h-full sm:max-h-[90vh] overflow-hidden flex flex-col safe-area-modal sm:py-0">
             
             {/* Modal Header */}
             <div className="px-6 py-4 border-b border-gray-150 bg-gray-50 flex items-center justify-between">
@@ -886,7 +954,7 @@ export const WorkerTab: React.FC = () => {
                 <div className="bg-red-50/10 p-4 rounded-xl border border-red-100">
                   <p className="text-xs font-medium text-gray-600 mb-2">기타 추가 공제 항목 개별 추가 (공과금 분담, 연수금 등)</p>
                   
-                  <div className="flex gap-2 mb-3">
+                  <div className="flex flex-col sm:flex-row gap-2 mb-3">
                     <input
                       type="text"
                       placeholder="항목명 (예: 가스 관리비)"
@@ -899,7 +967,7 @@ export const WorkerTab: React.FC = () => {
                       placeholder="차감 액수 (KRW)"
                       value={newDeductionAmount}
                       onChange={(e) => setNewDeductionAmount(e.target.value)}
-                      className="w-40 px-3 py-1.5 border border-gray-200 rounded-lg text-sm bg-white font-mono"
+                      className="w-full sm:w-40 px-3 py-1.5 border border-gray-200 rounded-lg text-sm bg-white font-mono"
                     />
                     <button
                       type="button"

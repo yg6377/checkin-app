@@ -192,6 +192,33 @@ function splitDayHours(
   };
 }
 
+function getConfirmedDayHours(
+  worker: Worker,
+  rec: AttendanceRecord | undefined
+): { base: number; overtime: number; holiday: number; holidayOvertime: number; night: number } | null {
+  const confirmed = rec?.confirmedBreakdown;
+  if (!confirmed) return null;
+
+  const isDailyLike = worker.employmentType === "daily" || worker.employmentType === "business";
+  if (isDailyLike) {
+    return {
+      base: round2(confirmed.manDays),
+      overtime: 0,
+      holiday: 0,
+      holidayOvertime: 0,
+      night: round2(confirmed.nightHours),
+    };
+  }
+
+  return {
+    base: round2(confirmed.regularHours),
+    overtime: round2(confirmed.overtimeHours),
+    holiday: round2(confirmed.holidayHours),
+    holidayOvertime: round2(confirmed.holidayOvertimeHours),
+    night: round2(confirmed.nightHours),
+  };
+}
+
 const THIN = { style: "thin" as const, color: { argb: "FF94A3B8" } };
 const ALL_BORDERS = { top: THIN, left: THIN, right: THIN, bottom: THIN };
 
@@ -278,7 +305,8 @@ function aggregateMonth(ctx: ExportContext): WorkerMonthAggregate[] {
     for (let d = 1; d <= dim; d++) {
       const isH = holidayByDay.get(d)!;
       const rec = dayMap.get(d);
-      const parts = splitDayHours(w, rec?.checkInAt || null, rec?.checkOutAt || null, isH, ctx.settings);
+      const parts = getConfirmedDayHours(w, rec)
+        || splitDayHours(w, rec?.checkInAt || null, rec?.checkOutAt || null, isH, ctx.settings);
       if (rec?.checkInAt) workedDays += 1;
       byDay.set(d, {
         inAt: rec?.checkInAt || null,

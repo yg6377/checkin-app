@@ -754,7 +754,7 @@ export const SettingsTab: React.FC = () => {
                   </div>
                 </div>
 
-                <div className="grid grid-cols-3 gap-4">
+                <div className="grid grid-cols-2 sm:grid-cols-3 gap-4">
                   <div>
                     <label className="block text-xs font-semibold text-gray-500 mb-1">휴게(점심) 시작 *</label>
                     <input
@@ -989,7 +989,7 @@ export const SettingsTab: React.FC = () => {
               <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mt-4">
                 <div className="space-y-4 bg-orange-50/10 p-4 rounded-xl border border-orange-100">
                   <p className="text-xs font-semibold text-orange-850">A. 새벽 작업 (조출 조항)</p>
-                  <div className="grid grid-cols-3 gap-2">
+                  <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
                     <div>
                       <label className="block text-[10px] text-gray-405">조출 개시</label>
                       <input type="time" name="earlyMorningStart" defaultValue={settings.dailyWorkerRules.earlyMorningStart} className="w-full px-2 py-1 border border-gray-200 rounded text-xs bg-white" />
@@ -1007,7 +1007,7 @@ export const SettingsTab: React.FC = () => {
 
                 <div className="space-y-4 bg-orange-50/10 p-4 rounded-xl border border-orange-100">
                   <p className="text-xs font-semibold text-orange-850">B. 오후 연장 작업 (연장 1단계)</p>
-                  <div className="grid grid-cols-3 gap-2">
+                  <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
                     <div>
                       <label className="block text-[10px] text-gray-405">연장1 개시</label>
                       <input type="time" name="afternoonOvertimeStart" defaultValue={settings.dailyWorkerRules.afternoonOvertimeStart} className="w-full px-2 py-1 border border-gray-200 rounded text-xs bg-white" />
@@ -1025,7 +1025,7 @@ export const SettingsTab: React.FC = () => {
 
                 <div className="space-y-4 bg-orange-50/10 p-4 rounded-xl border border-orange-100">
                   <p className="text-xs font-semibold text-orange-850">C. 저녁 야간 연장 (연장 2단계)</p>
-                  <div className="grid grid-cols-3 gap-2">
+                  <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
                     <div>
                       <label className="block text-[10px] text-gray-405">연장2 개시</label>
                       <input type="time" name="eveningOvertimeStart" defaultValue={settings.dailyWorkerRules.eveningOvertimeStart} className="w-full px-2 py-1 border border-gray-200 rounded text-xs bg-white" />

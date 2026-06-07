@@ -228,9 +228,9 @@ const AdminPortal: React.FC = () => {
   const [activeTab, setActiveTab] = useState<"workers" | "attendance" | "expiry" | "rules" | "simulator">("workers");
 
   return (
-    <div className="min-h-screen bg-slate-50 text-slate-900 font-sans flex flex-col justify-between">
+    <div className="min-h-screen w-full overflow-x-hidden bg-slate-50 text-slate-900 font-sans flex flex-col justify-between">
       <header className="bg-slate-900 border-b border-slate-950 text-white shadow-md">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-3 flex flex-col md:flex-row md:items-center md:justify-between gap-4">
+        <div className="max-w-screen-2xl mx-auto px-4 sm:px-6 lg:px-8 py-3 flex flex-col md:flex-row md:items-center md:justify-between gap-4">
           <div className="flex items-center gap-3">
             <div className="bg-blue-600 p-2 rounded-lg border border-blue-500 shrink-0">
               <Construction className="w-5 h-5 text-white" />
@@ -255,7 +255,7 @@ const AdminPortal: React.FC = () => {
 
           <div className="flex flex-wrap items-center gap-3 md:justify-end">
             {settings?.site?.siteLocation && (
-              <div className="bg-slate-850 p-2 px-3 rounded-lg border border-slate-700 text-[10px] font-mono text-slate-300 space-y-0.5 shadow-inner">
+              <div className="hidden sm:block bg-slate-850 p-2 px-3 rounded-lg border border-slate-700 text-[10px] font-mono text-slate-300 space-y-0.5 shadow-inner">
                 <p className="flex items-center gap-1">
                   <MapPin className="w-3 h-3 text-blue-400" />
                   <strong>현장좌표:</strong> {settings.site.siteLocation.lat}, {settings.site.siteLocation.lng}
@@ -280,11 +280,11 @@ const AdminPortal: React.FC = () => {
       </header>
 
       <div className="bg-slate-100 border-b border-slate-200 py-1.5 select-none shadow-xs">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-          <div className="flex bg-slate-200 p-0.5 w-full sm:w-fit rounded-lg border border-slate-300 gap-1">
+        <div className="max-w-screen-2xl mx-auto px-4 sm:px-6 lg:px-8">
+          <div className="flex bg-slate-200 p-0.5 w-full sm:w-fit rounded-lg border border-slate-300 gap-1 overflow-x-auto">
             <button
               onClick={() => setActiveTab("workers")}
-              className={`flex-1 sm:flex-initial flex items-center justify-center gap-2 px-4 py-1.5 rounded-md text-xs font-semibold transition cursor-pointer ${
+              className={`shrink-0 flex-1 sm:flex-initial flex items-center justify-center gap-2 px-4 py-2.5 sm:py-1.5 rounded-md text-xs font-semibold transition cursor-pointer whitespace-nowrap ${
                 activeTab === "workers"
                   ? "bg-white text-blue-700 shadow border-b-2 border-blue-600 font-black"
                   : "text-slate-600 hover:text-slate-900 hover:bg-slate-200/50"
@@ -296,7 +296,7 @@ const AdminPortal: React.FC = () => {
 
             <button
               onClick={() => setActiveTab("attendance")}
-              className={`flex-1 sm:flex-initial flex items-center justify-center gap-2 px-4 py-1.5 rounded-md text-xs font-semibold transition cursor-pointer ${
+              className={`shrink-0 flex-1 sm:flex-initial flex items-center justify-center gap-2 px-4 py-2.5 sm:py-1.5 rounded-md text-xs font-semibold transition cursor-pointer whitespace-nowrap ${
                 activeTab === "attendance"
                   ? "bg-white text-blue-700 shadow border-b-2 border-blue-600 font-black"
                   : "text-slate-600 hover:text-slate-900 hover:bg-slate-200/50"
@@ -308,7 +308,7 @@ const AdminPortal: React.FC = () => {
 
             <button
               onClick={() => setActiveTab("expiry")}
-              className={`flex-1 sm:flex-initial flex items-center justify-center gap-2 px-4 py-1.5 rounded-md text-xs font-semibold transition cursor-pointer ${
+              className={`shrink-0 flex-1 sm:flex-initial flex items-center justify-center gap-2 px-4 py-2.5 sm:py-1.5 rounded-md text-xs font-semibold transition cursor-pointer whitespace-nowrap ${
                 activeTab === "expiry"
                   ? "bg-white text-blue-700 shadow border-b-2 border-blue-600 font-black"
                   : "text-slate-600 hover:text-slate-900 hover:bg-slate-200/50"
@@ -320,7 +320,7 @@ const AdminPortal: React.FC = () => {
 
             <button
               onClick={() => setActiveTab("rules")}
-              className={`flex-1 sm:flex-initial flex items-center justify-center gap-2 px-4 py-1.5 rounded-md text-xs font-semibold transition cursor-pointer ${
+              className={`shrink-0 flex-1 sm:flex-initial flex items-center justify-center gap-2 px-4 py-2.5 sm:py-1.5 rounded-md text-xs font-semibold transition cursor-pointer whitespace-nowrap ${
                 activeTab === "rules"
                   ? "bg-white text-blue-700 shadow border-b-2 border-blue-600 font-black"
                   : "text-slate-600 hover:text-slate-900 hover:bg-slate-200/50"
@@ -332,7 +332,7 @@ const AdminPortal: React.FC = () => {
 
             <button
               onClick={() => setActiveTab("simulator")}
-              className={`flex-1 sm:flex-initial flex items-center justify-center gap-2 px-4 py-1.5 rounded-md text-xs font-semibold transition cursor-pointer ${
+              className={`shrink-0 flex-1 sm:flex-initial flex items-center justify-center gap-2 px-4 py-2.5 sm:py-1.5 rounded-md text-xs font-semibold transition cursor-pointer whitespace-nowrap ${
                 activeTab === "simulator"
                   ? "bg-white text-blue-700 shadow border-b-2 border-blue-600 font-black"
                   : "text-slate-600 hover:text-slate-900 hover:bg-slate-200/50"
@@ -345,7 +345,7 @@ const AdminPortal: React.FC = () => {
         </div>
       </div>
 
-      <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-5 flex-1 w-full">
+      <main className="max-w-screen-2xl mx-auto px-4 sm:px-6 lg:px-8 py-5 flex-1 w-full">
         {activeTab === "workers" && <WorkerTab />}
         {activeTab === "attendance" && <AttendanceTab />}
         {activeTab === "expiry" && <ExpiryTab />}
@@ -354,7 +354,7 @@ const AdminPortal: React.FC = () => {
       </main>
 
       <footer className="border-t border-slate-200 bg-white py-4 shadow-xs">
-        <div className="max-w-7xl mx-auto px-4 text-center space-y-1">
+        <div className="max-w-screen-2xl mx-auto px-4 text-center space-y-1">
           <p className="text-[10px] text-slate-400 font-mono">
             &copy; {new Date().getFullYear()} CM건설 Workforce & Payroll Registry Portal.
           </p>
