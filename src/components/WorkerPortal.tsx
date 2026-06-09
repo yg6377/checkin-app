@@ -1,8 +1,9 @@
-import React, { useCallback, useEffect, useId, useRef, useState } from "react";
+import React, { useCallback, useEffect, useId, useMemo, useRef, useState } from "react";
 import { AttendanceRecord, useApp } from "../context/SupabaseContext";
 import type { Html5Qrcode } from "html5-qrcode";
 import { languageOptions, languageToLocale, useLanguage } from "../i18n";
 import { formatZonedTime, getAppTimeZone, getZonedYmd } from "../utils/datetime";
+import { calculateDailyBreakdown, getDayType } from "../utils/attendanceHours";
 import {
   HardHat,
   LogIn,
@@ -27,6 +28,19 @@ function fmtDateLabel(date: Date, locale: string): string {
     day: "numeric",
     weekday: "short",
   }).format(date);
+}
+
+function fmtShortHours(hours: number): string {
+  if (hours <= 0) return "-";
+  const h = Math.floor(hours);
+  const m = Math.round((hours - h) * 60);
+  if (m === 0) return `${h}h`;
+  if (h === 0) return `${m}m`;
+  return `${h}h ${m}m`;
+}
+
+function currentMonthStartYmd(timeZone: string): string {
+  return `${getZonedYmd(new Date(), timeZone).slice(0, 8)}01`;
 }
 
 // ============================================================
@@ -293,7 +307,7 @@ const AttendanceResultModal: React.FC<{
 // 근로자 메인 화면
 // ============================================================
 export const WorkerPortal: React.FC = () => {
-  const { user, logout, workers, todayAttendance, submitAttendance, refreshTodayAttendance, fetchAttendance, settings } = useApp();
+  const { user, logout, workers, todayAttendance, submitAttendance, refreshTodayAttendance, fetchAttendance, settings, holidays } = useApp();
   const tz = getAppTimeZone(settings);
   const { language, setLanguage, t } = useLanguage();
   const [scannerAction, setScannerAction] = useState<"in" | "out" | null>(null);
@@ -303,6 +317,11 @@ export const WorkerPortal: React.FC = () => {
   const [recordsError, setRecordsError] = useState("");
   const [attendanceHistory, setAttendanceHistory] = useState<AttendanceRecord[]>([]);
   const [resultAction, setResultAction] = useState<"in" | "out" | null>(null);
+  const [historyFromDate, setHistoryFromDate] = useState(() => currentMonthStartYmd(tz));
+  const [historyToDate, setHistoryToDate] = useState(() => getZonedYmd(new Date(), tz));
+  const [dateSheetOpen, setDateSheetOpen] = useState(false);
+  const [draftFromDate, setDraftFromDate] = useState(historyFromDate);
+  const [draftToDate, setDraftToDate] = useState(historyToDate);
 
   // 본인 worker 정보 (workers 배열에서 본인만 RLS 로 보임)
   const me = workers[0];
@@ -329,8 +348,8 @@ export const WorkerPortal: React.FC = () => {
     setRecordsError("");
     try {
       const records = await fetchAttendance({
-        fromDate: getZonedYmd(new Date(), tz).slice(0, 8) + "01",
-        toDate: getZonedYmd(new Date(), tz),
+        fromDate: historyFromDate,
+        toDate: historyToDate,
         workerId: me.id,
       });
       setAttendanceHistory(records);
@@ -340,7 +359,7 @@ export const WorkerPortal: React.FC = () => {
     } finally {
       setRecordsLoading(false);
     }
-  }, [fetchAttendance, me?.id, me?.joinDate, t]);
+  }, [fetchAttendance, historyFromDate, historyToDate, me?.id, t]);
 
   useEffect(() => {
     loadAttendanceHistory();
@@ -364,6 +383,45 @@ export const WorkerPortal: React.FC = () => {
 
   const totalWorkDays = attendanceHistory.filter((r) => r.checkInAt).length;
   const missingCheckoutCount = attendanceHistory.filter((r) => r.checkInAt && !r.checkOutAt).length;
+  const isDailyLike = me?.employmentType === "daily" || me?.employmentType === "business";
+  const totalManDays = useMemo(() => {
+    if (!isDailyLike || !me || !settings) return 0;
+    return attendanceHistory.reduce((sum, record) => {
+      if (record.confirmedBreakdown) return sum + record.confirmedBreakdown.manDays;
+      if (!record.checkInAt || !record.checkOutAt) return sum;
+      const breakdown = calculateDailyBreakdown(
+        record.checkInAt,
+        record.checkOutAt,
+        getDayType(record.workDate, holidays),
+        me.employmentType,
+        settings
+      );
+      return sum + breakdown.manDays;
+    }, 0);
+  }, [attendanceHistory, holidays, isDailyLike, me, settings]);
+
+  const recordManDays = (record: AttendanceRecord): number => {
+    if (!isDailyLike || !me || !settings) return 0;
+    if (record.confirmedBreakdown) return record.confirmedBreakdown.manDays;
+    if (!record.checkInAt || !record.checkOutAt) return 0;
+    return calculateDailyBreakdown(
+      record.checkInAt,
+      record.checkOutAt,
+      getDayType(record.workDate, holidays),
+      me.employmentType,
+      settings
+    ).manDays;
+  };
+  const openDateSheet = () => {
+    setDraftFromDate(historyFromDate);
+    setDraftToDate(historyToDate);
+    setDateSheetOpen(true);
+  };
+  const applyDateRange = () => {
+    setHistoryFromDate(draftFromDate);
+    setHistoryToDate(draftToDate);
+    setDateSheetOpen(false);
+  };
 
   return (
     <div className="safe-area-screen bg-gradient-to-br from-slate-50 to-stone-100 font-sans flex flex-col">
@@ -398,18 +456,20 @@ export const WorkerPortal: React.FC = () => {
             {activeView === "history" && (
               <button
                 onClick={() => setActiveView("home")}
-                className="text-[11px] text-slate-500 hover:text-slate-900 flex items-center gap-1 font-semibold"
+                title={t("back")}
+                aria-label={t("back")}
+                className="w-8 h-8 rounded-lg border border-slate-200 bg-white text-slate-500 hover:text-slate-900 hover:bg-slate-50 flex items-center justify-center"
               >
-                <ChevronLeft className="w-3.5 h-3.5" />
-                {t("back")}
+                <ChevronLeft className="w-4 h-4" />
               </button>
             )}
             <button
               onClick={logout}
-              className="text-[11px] text-slate-500 hover:text-rose-600 flex items-center gap-1 font-semibold"
+              title={t("logout")}
+              aria-label={t("logout")}
+              className="w-8 h-8 rounded-lg border border-slate-200 bg-white text-slate-500 hover:text-rose-600 hover:bg-rose-50 flex items-center justify-center"
             >
-              <LogOut className="w-3 h-3" />
-              {t("logout")}
+              <LogOut className="w-4 h-4" />
             </button>
           </div>
         </div>
@@ -503,7 +563,7 @@ export const WorkerPortal: React.FC = () => {
               <div className="flex items-center justify-between gap-3">
                 <div>
                   <p className="text-xs font-bold text-slate-500 uppercase tracking-wide">{t("myHistory")}</p>
-                  <p className="text-[11px] text-slate-400 mt-1">{t("historySinceJoin")}</p>
+                  <p className="text-[11px] text-slate-400 mt-1">{historyFromDate} ~ {historyToDate}</p>
                 </div>
                 <button
                   onClick={loadAttendanceHistory}
@@ -513,11 +573,40 @@ export const WorkerPortal: React.FC = () => {
                 </button>
               </div>
 
-              <div className="grid grid-cols-2 gap-2">
+              <div className="space-y-2">
+                <button
+                  type="button"
+                  onClick={openDateSheet}
+                  className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-left hover:bg-slate-50"
+                >
+                  <span className="block text-[10px] font-bold text-slate-500 uppercase">
+                    {t("fromDate")} / {t("toDate")}
+                  </span>
+                  <span className="mt-1 flex items-center gap-2 text-sm font-black text-slate-900 font-mono">
+                    <CalendarDays className="w-4 h-4 text-slate-400 shrink-0" />
+                    <span className="min-w-0 truncate">{historyFromDate} ~ {historyToDate}</span>
+                  </span>
+                </button>
+                <button
+                  onClick={loadAttendanceHistory}
+                  disabled={recordsLoading}
+                  className="w-full rounded-xl bg-slate-900 px-3 py-2 text-sm font-bold text-white hover:bg-slate-800 disabled:opacity-50"
+                >
+                  {t("search")}
+                </button>
+              </div>
+
+              <div className={`grid ${isDailyLike ? "grid-cols-3" : "grid-cols-2"} gap-2`}>
                 <div className="rounded-xl border border-slate-200 bg-slate-50 p-3">
                   <p className="text-[10px] font-bold text-slate-500 uppercase">{t("totalDays")}</p>
                   <p className="mt-1 text-lg font-black text-slate-900">{totalWorkDays} {t("dayUnit")}</p>
                 </div>
+                {isDailyLike && (
+                  <div className="rounded-xl border border-slate-200 bg-slate-50 p-3">
+                    <p className="text-[10px] font-bold text-slate-500 uppercase">{t("totalManDays")}</p>
+                    <p className="mt-1 text-lg font-black text-slate-900">{totalManDays.toFixed(2)}</p>
+                  </div>
+                )}
                 <div className="rounded-xl border border-slate-200 bg-slate-50 p-3">
                   <p className="text-[10px] font-bold text-slate-500 uppercase">{t("missingCheckout")}</p>
                   <p className={`mt-1 text-lg font-black ${missingCheckoutCount > 0 ? "text-rose-600" : "text-slate-900"}`}>
@@ -539,6 +628,54 @@ export const WorkerPortal: React.FC = () => {
                 <p className="text-[11px] leading-relaxed">{recordsError}</p>
               </div>
             )}
+
+            {!recordsLoading && !recordsError && attendanceHistory.length === 0 && (
+              <div className="rounded-xl border border-slate-200 bg-white px-4 py-8 text-center text-sm text-slate-500">
+                {t("noHistoryInRange")}
+              </div>
+            )}
+
+            {!recordsLoading && !recordsError && attendanceHistory.length > 0 && (
+              <div className="space-y-2">
+                {attendanceHistory.map((record) => {
+                  const manDays = recordManDays(record);
+                  const missingCheckout = record.checkInAt && !record.checkOutAt;
+                  return (
+                    <div key={record.id} className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
+                      <div className="flex items-start justify-between gap-3">
+                        <div>
+                          <p className="text-sm font-black text-slate-900 font-mono">{record.workDate}</p>
+                          <p className="mt-1 text-[11px] text-slate-500">
+                            {t("workHours")} {fmtShortHours(record.workHours)}
+                            {isDailyLike && <span className="ml-2">· {t("manDays")} {manDays.toFixed(2)}</span>}
+                          </p>
+                        </div>
+                        {missingCheckout && (
+                          <span className="shrink-0 rounded-full border border-rose-200 bg-rose-50 px-2 py-1 text-[10px] font-bold text-rose-700">
+                            {t("checkoutMissing")}
+                          </span>
+                        )}
+                      </div>
+
+                      <div className="mt-3 grid grid-cols-2 gap-2">
+                        <div className="rounded-xl bg-emerald-50/60 border border-emerald-100 p-3">
+                          <p className="text-[10px] font-bold text-emerald-700 uppercase">{t("checkIn")}</p>
+                          <p className="mt-1 text-base font-black font-mono text-emerald-800">
+                            {formatZonedTime(record.checkInAt, tz)}
+                          </p>
+                        </div>
+                        <div className="rounded-xl bg-rose-50/60 border border-rose-100 p-3">
+                          <p className="text-[10px] font-bold text-rose-700 uppercase">{t("checkOut")}</p>
+                          <p className={`mt-1 text-base font-black font-mono ${record.checkOutAt ? "text-rose-800" : "text-rose-500"}`}>
+                            {record.checkOutAt ? formatZonedTime(record.checkOutAt, tz) : t("checkoutMissing")}
+                          </p>
+                        </div>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
           </>
         )}
       </main>
@@ -556,6 +693,66 @@ export const WorkerPortal: React.FC = () => {
           action={resultAction}
           onConfirm={() => setResultAction(null)}
         />
+      )}
+
+      {dateSheetOpen && (
+        <div className="fixed inset-0 z-50 bg-slate-950/40 flex items-end justify-center">
+          <div className="w-full max-w-md rounded-t-3xl bg-white border border-slate-200 shadow-2xl p-5 space-y-4 safe-area-modal">
+            <div className="flex items-center justify-between">
+              <div>
+                <p className="text-sm font-black text-slate-900">{t("fromDate")} / {t("toDate")}</p>
+                <p className="text-[11px] text-slate-400 mt-0.5 font-mono">{draftFromDate} ~ {draftToDate}</p>
+              </div>
+              <button
+                type="button"
+                onClick={() => setDateSheetOpen(false)}
+                className="w-8 h-8 rounded-lg border border-slate-200 flex items-center justify-center text-slate-500"
+                aria-label={t("back")}
+                title={t("back")}
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            <div className="space-y-3">
+              <label className="block space-y-1">
+                <span className="text-[10px] font-bold text-slate-500 uppercase">{t("fromDate")}</span>
+                <input
+                  type="date"
+                  value={draftFromDate}
+                  onChange={(e) => setDraftFromDate(e.target.value)}
+                  className="w-full rounded-xl border border-slate-200 bg-slate-50 px-3 py-3 text-base font-mono text-slate-800 focus:outline-none focus:border-slate-400"
+                />
+              </label>
+              <label className="block space-y-1">
+                <span className="text-[10px] font-bold text-slate-500 uppercase">{t("toDate")}</span>
+                <input
+                  type="date"
+                  value={draftToDate}
+                  onChange={(e) => setDraftToDate(e.target.value)}
+                  className="w-full rounded-xl border border-slate-200 bg-slate-50 px-3 py-3 text-base font-mono text-slate-800 focus:outline-none focus:border-slate-400"
+                />
+              </label>
+            </div>
+
+            <div className="grid grid-cols-2 gap-2 pt-1">
+              <button
+                type="button"
+                onClick={() => setDateSheetOpen(false)}
+                className="rounded-xl border border-slate-200 bg-white px-3 py-3 text-sm font-bold text-slate-700"
+              >
+                {t("back")}
+              </button>
+              <button
+                type="button"
+                onClick={applyDateRange}
+                className="rounded-xl bg-slate-900 px-3 py-3 text-sm font-bold text-white"
+              >
+                {t("confirm")}
+              </button>
+            </div>
+          </div>
+        </div>
       )}
     </div>
   );

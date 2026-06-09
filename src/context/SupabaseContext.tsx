@@ -29,6 +29,7 @@ function dbToWorker(row: any): Worker {
     contractEndDate: row.contract_end_date || "",
     joinDate: row.join_date,
     retireDate: row.retire_date,
+    privacyPurgedAt: row.privacy_purged_at || null,
     duty: row.duty || "",
     department: row.department || "",
     job: row.job || "",
@@ -39,6 +40,7 @@ function dbToWorker(row: any): Worker {
     homeContact: row.home_contact || "",
     emergencyName: row.emergency_name || "",
     emergencyRelation: row.emergency_relation || "",
+    hasVehicle: row.has_vehicle ?? false,
     salarySettings: {
       monthlyBase: Number(row.monthly_base) || 0,
       hourlyRate: Number(row.hourly_rate) || 0,
@@ -83,6 +85,7 @@ function workerToDb(w: Worker | Omit<Worker, "id">) {
     department: w.department || null,
     job: w.job || null,
     is_foreigner: w.isForeigner ?? false,
+    has_vehicle: w.hasVehicle ?? false,
     visa_type: w.isForeigner ? (w.visaType || null) : null,
     passport_expiry: w.isForeigner ? (w.passportExpiry || null) : null,
     home_address: w.isForeigner ? (w.homeAddress || null) : null,
@@ -145,7 +148,8 @@ interface AppContextType {
   updateSetting: (category: keyof AllSettings, newValues: any) => Promise<void>;
   addWorker: (worker: Omit<Worker, "id">) => Promise<WorkerCredentials>;
   updateWorker: (id: string, worker: Worker) => Promise<void>;
-  deleteWorker: (id: string) => Promise<void>;
+  retireWorker: (id: string, retireDate?: string) => Promise<void>;
+  purgeRetiredWorkerPrivateData: (id: string) => Promise<void>;
   resetWorkerPassword: (workerId: string, newPassword?: string) => Promise<WorkerCredentials>;
   fetchResidentNumber: (workerId: string) => Promise<string>;
   addHoliday: (holiday: Omit<Holiday, "id">) => Promise<void>;
@@ -542,18 +546,41 @@ export const SupabaseProvider: React.FC<{ children: React.ReactNode }> = ({ chil
     return (data as string) || "";
   };
 
-  const deleteWorker = async (id: string) => {
+  const retireWorker = async (id: string, retireDate?: string) => {
     if (!user) return;
     const target = workers.find((w) => w.id === id || w.workerId === id);
-    const { error } = await supabase.from("workers").delete().eq("id", id);
-    if (error) throw error;
+    const effectiveDate = retireDate || new Date().toISOString().split("T")[0];
+    const { error } = await supabase.rpc("retire_worker", {
+      p_worker_id: id,
+      p_retire_date: effectiveDate,
+    });
+    if (error) throw new Error(translateRpcError(error.message));
 
     await logHistory({
       category: "worker",
-      action: "delete",
-      label: `근로자 등록 해제: [${target?.name || "알수없음"}]`,
-      fromValue: { name: target?.name },
-      toValue: {},
+      action: "update",
+      label: `근로자 퇴사 처리: [${target?.name || "알수없음"}]`,
+      fromValue: { name: target?.name, retireDate: target?.retireDate || null },
+      toValue: { retireDate: effectiveDate, loginDisabled: true },
+    });
+    await loadWorkers();
+    await loadHistory();
+  };
+
+  const purgeRetiredWorkerPrivateData = async (id: string) => {
+    if (!user) return;
+    const target = workers.find((w) => w.id === id || w.workerId === id);
+    const { error } = await supabase.rpc("purge_retired_worker_private_data", {
+      p_worker_id: id,
+    });
+    if (error) throw new Error(translateRpcError(error.message));
+
+    await logHistory({
+      category: "worker",
+      action: "update",
+      label: `퇴사자 민감정보 정리: [${target?.name || "알수없음"}]`,
+      fromValue: { name: target?.name, workerId: target?.workerId, retireDate: target?.retireDate },
+      toValue: { privacyPurged: true },
     });
     await loadWorkers();
     await loadHistory();
@@ -868,7 +895,8 @@ export const SupabaseProvider: React.FC<{ children: React.ReactNode }> = ({ chil
         updateSetting,
         addWorker,
         updateWorker,
-        deleteWorker,
+        retireWorker,
+        purgeRetiredWorkerPrivateData,
         resetWorkerPassword,
         fetchResidentNumber,
         addHoliday,

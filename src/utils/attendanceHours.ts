@@ -1,4 +1,12 @@
-import type { AllSettings, Holiday, WorkTimeSettings, Worker } from "../types";
+import type {
+  AllSettings,
+  AttendanceSnapRule,
+  Holiday,
+  SnapDayType,
+  SnapKind,
+  WorkTimeSettings,
+  Worker,
+} from "../types";
 import { DEFAULT_TIME_ZONE, getAppTimeZone, getZonedClockMinutes } from "./datetime";
 
 function hhmmToMinutes(value: string): number {
@@ -9,6 +17,44 @@ function hhmmToMinutes(value: string): number {
 
 function overlapMinutes(start: number, end: number, windowStart: number, windowEnd: number): number {
   return Math.max(0, Math.min(end, windowEnd) - Math.max(start, windowStart));
+}
+
+/**
+ * 근무일의 요일 유형을 4분류로 판정한다.
+ * 공휴일 등록일이면 'holiday'가 일/토요일보다 우선한다.
+ */
+export function getDayType(workDate: string, holidays: Holiday[]): SnapDayType {
+  if (holidays.some((h) => h.date === workDate)) return "holiday";
+  const parsed = new Date(`${workDate}T00:00:00`);
+  if (Number.isNaN(parsed.getTime())) return "weekday";
+  const day = parsed.getDay();
+  if (day === 0) return "sunday";
+  if (day === 6) return "saturday";
+  return "weekday";
+}
+
+/**
+ * 타각 시각(설정 타임존 벽시계 분)을 보정 규칙에 따라 인정 시각으로 스냅한다.
+ * dayType/kind가 일치하고 raw 시각이 [fromTime, toTime] 구간에 드는 첫 규칙의 snapTo로 보정.
+ * 매칭되는 규칙이 없으면 raw 그대로 반환(구간 밖은 보정하지 않음).
+ */
+export function snapClockMinutes(
+  rawMinutes: number,
+  dayType: SnapDayType,
+  kind: SnapKind,
+  snapRules?: AttendanceSnapRule[]
+): number {
+  if (!snapRules || snapRules.length === 0) return rawMinutes;
+  // raw는 0~1439로 정규화해서 비교 (자정 넘김 +1440이 들어와도 안전)
+  const raw = ((rawMinutes % 1440) + 1440) % 1440;
+  for (const rule of snapRules) {
+    if (rule.dayType !== dayType || rule.kind !== kind) continue;
+    const from = hhmmToMinutes(rule.fromTime);
+    const to = hhmmToMinutes(rule.toTime);
+    const inRange = from <= to ? raw >= from && raw <= to : raw >= from || raw <= to; // from>to: 자정 넘김 구간
+    if (inRange) return hhmmToMinutes(rule.snapTo);
+  }
+  return rawMinutes;
 }
 
 export function calculateWorkedHours(
@@ -83,7 +129,7 @@ const EMPTY_BREAKDOWN: DailyBreakdown = {
 export function calculateDailyBreakdown(
   checkInISO: string | null,
   checkOutISO: string | null,
-  isHoliday: boolean,
+  dayType: SnapDayType,
   employmentType: Worker["employmentType"],
   settings: AllSettings
 ): DailyBreakdown {
@@ -97,10 +143,22 @@ export function calculateDailyBreakdown(
 
   const { workTime, overtimeRules, dailyWorkerRules } = settings;
   const timeZone = getAppTimeZone(settings);
+  const isHoliday = dayType !== "weekday";
 
-  // 설정 타임존 기준 벽시계 분(分)으로 환산 (자정 넘김은 +1440)
-  const startMinutes = getZonedClockMinutes(checkIn, timeZone);
-  let endMinutes = getZonedClockMinutes(checkOut, timeZone);
+  // 설정 타임존 기준 벽시계 분(分)으로 환산 후, 타각 보정 규칙으로 인정 시각 스냅
+  const startMinutes = snapClockMinutes(
+    getZonedClockMinutes(checkIn, timeZone),
+    dayType,
+    "in",
+    overtimeRules.snapRules
+  );
+  let endMinutes = snapClockMinutes(
+    getZonedClockMinutes(checkOut, timeZone),
+    dayType,
+    "out",
+    overtimeRules.snapRules
+  );
+  // 자정 넘김 보정은 스냅 적용 후에 수행
   if (endMinutes <= startMinutes) endMinutes += 1440;
 
   // 점심시간 차감

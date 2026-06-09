@@ -13,6 +13,19 @@ export interface WorkTimeSettings {
   jobs?: string[];
 }
 
+// 타각 보정(스냅) 규칙 — "이 요일에 이 구간에 찍으면 → 이 시각으로 인정"
+export type SnapDayType = "weekday" | "saturday" | "sunday" | "holiday"; // 평일/토/일/공휴일
+export type SnapKind = "in" | "out"; // 출근 / 퇴근
+
+export interface AttendanceSnapRule {
+  id: string; // react key & 삭제 식별용 (crypto.randomUUID())
+  dayType: SnapDayType;
+  kind: SnapKind;
+  fromTime: string; // "HH:MM" 구간 시작 (포함)
+  toTime: string; // "HH:MM" 구간 끝 (포함)
+  snapTo: string; // "HH:MM" 인정 시각
+}
+
 export interface OvertimeRulesSettings {
   weekdayOvertimeRate: number; // e.g., 1.5
   holidayRate: number; // e.g., 1.5
@@ -20,6 +33,7 @@ export interface OvertimeRulesSettings {
   nightRate: number; // e.g., 0.5 (additional)
   nightStart: string; // e.g., "22:00"
   nightEnd: string; // e.g., "06:00"
+  snapRules?: AttendanceSnapRule[]; // 타각 보정 규칙 목록 (미설정 시 보정 안 함)
 }
 
 export interface DailyWorkerRulesSettings {
@@ -93,6 +107,7 @@ export interface Worker {
   contractEndDate: string; // YYYY-MM-DD (계약 만료일, 공통 — 만료 알림 대상)
   joinDate: string; // YYYY-MM-DD
   retireDate: string | null;
+  privacyPurgedAt?: string | null;
   duty: string;
   department: string;
   job: string;
@@ -104,6 +119,7 @@ export interface Worker {
   homeContact: string; // 본국 연락처
   emergencyName: string; // 본국 연락 가능 이름
   emergencyRelation: string; // 관계
+  hasVehicle: boolean; // 자가 차량 보유 여부 — true일 때만 자가운전보조금을 비과세로 분리 (월급제)
   salarySettings: {
     monthlyBase: number;
     hourlyRate: number;

@@ -89,6 +89,7 @@ create table workers (
   contract_date       date,
   join_date           date not null,
   retire_date         date,
+  privacy_purged_at   timestamptz,
   duty                text,
   department          text,
   job                 text,
@@ -126,6 +127,7 @@ create index workers_employment_type_idx on workers(employment_type);
 create index workers_department_idx       on workers(department);
 create index workers_job_idx              on workers(job);
 create index workers_retire_date_idx      on workers(retire_date) where retire_date is null;
+create index workers_retired_privacy_due_idx on workers(retire_date, privacy_purged_at) where retire_date is not null;
 
 -- profiles → workers FK 지연 연결
 alter table profiles

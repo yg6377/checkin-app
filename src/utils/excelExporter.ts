@@ -1,9 +1,10 @@
 import ExcelJS from "exceljs";
 import { saveAs } from "file-saver";
-import { AllSettings, Worker, Holiday } from "../types";
+import { AllSettings, Worker, Holiday, SnapDayType } from "../types";
 import { AttendanceRecord } from "../context/SupabaseContext";
 import { getWorkerAllowances } from "./payrollCalculator";
 import { formatZonedTime, getAppTimeZone, getZonedClockMinutes } from "./datetime";
+import { getDayType, snapClockMinutes } from "./attendanceHours";
 
 // ============================================================
 // 공통 헬퍼
@@ -90,17 +91,18 @@ function overlapsConfiguredWindow(
 }
 
 /**
- * 하루 출퇴근 시각을 기본/연장/휴일/휴일연장/심야 시간으로 분해.
+ * 하루 출퇴근 시각을 기본/연장/휴일/휴일연장/야간 시간으로 분해.
+ * - 타각 보정 규칙(snapRules)으로 인정 시각을 먼저 보정한 뒤 계산 (화면 산정과 동일)
  * - 점심시간이 출퇴근 범위에 포함되면 1시간 차감
  * - 평일: 기본 = min(net, 8h), 연장 = max(0, net - 8h)
  * - 휴일: 휴일 = min(net, 8h), 휴일연장 = max(0, net - 8h)
- * - 심야: 22:00~06:00 범위에 걸친 분량 (별도 표기, 합산에서 빠지지 않음 — 참고용)
+ * - 야간: 22:00~06:00 범위에 걸친 분량 (별도 표기, 합산에서 빠지지 않음 — 참고용)
  */
 function splitDayHours(
   worker: Worker,
   checkInISO: string | null,
   checkOutISO: string | null,
-  isHoliday: boolean,
+  dayType: SnapDayType,
   settings: AllSettings
 ): { base: number; overtime: number; holiday: number; holidayOvertime: number; night: number } {
   if (!checkInISO || !checkOutISO) {
@@ -109,11 +111,22 @@ function splitDayHours(
 
   const inDate = new Date(checkInISO);
   const outDate = new Date(checkOutISO);
+  const isHoliday = dayType !== "weekday";
 
-  // 설정 타임존 기준 벽시계 분(分) 단위 (자정 넘김은 +1440)
+  // 설정 타임존 기준 벽시계 분(分) 단위 → 타각 보정 규칙으로 인정 시각 스냅 (자정 넘김은 +1440)
   const timeZone = getAppTimeZone(settings);
-  const startMin = getZonedClockMinutes(inDate, timeZone);
-  let endMin = getZonedClockMinutes(outDate, timeZone);
+  const startMin = snapClockMinutes(
+    getZonedClockMinutes(inDate, timeZone),
+    dayType,
+    "in",
+    settings.overtimeRules.snapRules
+  );
+  let endMin = snapClockMinutes(
+    getZonedClockMinutes(outDate, timeZone),
+    dayType,
+    "out",
+    settings.overtimeRules.snapRules
+  );
   if (endMin <= startMin) endMin += 1440;
 
   // 점심시간 (보통 12:00-13:00) 겹침 차감
@@ -121,7 +134,7 @@ function splitDayHours(
   const lunchEnd = hhmmToMin(settings.workTime.lunchEnd);
   const lunchOverlap = overlapMin(startMin, endMin, lunchStart, lunchEnd);
 
-  // 심야 (22:00 - 06:00 다음날)
+  // 야간 (22:00 - 06:00 다음날)
   const nightStartMin = hhmmToMin(settings.overtimeRules.nightStart); // 22:00 → 1320
   const nightEndMin = hhmmToMin(settings.overtimeRules.nightEnd);     // 06:00 → 360
   // 야간 윈도우: [22:00, 30:00) (=06:00 익일)
@@ -241,6 +254,10 @@ function round2(n: number): number {
   return Math.round(n * 100) / 100;
 }
 
+// 시간(소수)을 H:MM(예: 1.5 → 1:30, 0.5 → 0:30)으로 표기하기 위한 엑셀 시간 형식.
+// 셀 값은 "시간 / 24"(엑셀 직렬시간)로 넣고 이 형식을 적용한다. 합계도 시간으로 누적됨.
+const HM_FMT = "[h]:mm";
+
 // ============================================================
 // 1) 노무대장 (통합 1시트) — 26년5월노무대장_Rev01.xlsx 양식
 // ============================================================
@@ -305,8 +322,9 @@ function aggregateMonth(ctx: ExportContext): WorkerMonthAggregate[] {
     for (let d = 1; d <= dim; d++) {
       const isH = holidayByDay.get(d)!;
       const rec = dayMap.get(d);
+      const dayType = getDayType(`${ctx.year}-${pad2(ctx.month)}-${pad2(d)}`, ctx.holidays);
       const parts = getConfirmedDayHours(w, rec)
-        || splitDayHours(w, rec?.checkInAt || null, rec?.checkOutAt || null, isH, ctx.settings);
+        || splitDayHours(w, rec?.checkInAt || null, rec?.checkOutAt || null, dayType, ctx.settings);
       if (rec?.checkInAt) workedDays += 1;
       byDay.set(d, {
         inAt: rec?.checkInAt || null,
@@ -403,7 +421,7 @@ export async function exportLaborLedger(ctx: ExportContext): Promise<void> {
     ws.getColumn(col).width = 7;
   }
 
-  // 요약 컬럼: 일수, 형태, 단가, 기본급/연장, 식대/휴일, 자가운전/휴일연장, 통신비/심야, 직책수당/기타, 합계, 국민연금/고용보험, 건강보험/소득세, 장기요양/지방소득세, 숙소료/가불, 기타, 합계, 실지급액, 비고
+  // 요약 컬럼: 일수, 형태, 단가, 기본급/연장, 식대/휴일, 자가운전/휴일연장, 통신비/야간, 직책수당/기타, 합계, 국민연금/고용보험, 건강보험/소득세, 장기요양/지방소득세, 숙소료/가불, 기타, 합계, 실지급액, 비고
   const summaryStartCol = dayStartCol + dim;
   const summaryTopBottom: [string, string][] = [
     ["일수", ""],         // +0
@@ -412,7 +430,7 @@ export async function exportLaborLedger(ctx: ExportContext): Promise<void> {
     ["기본급", "연장수당"],      // +3
     ["식대", "휴일수당"],        // +4
     ["자가운전", "휴일연장"],     // +5
-    ["통신비", "심야수당"],      // +6
+    ["통신비", "야간수당"],      // +6
     ["직책수당", "기타"],        // +7
     ["지급계", ""],       // +8
     ["국민연금", "고용보험"],     // +9 — 공제
@@ -499,10 +517,16 @@ export async function exportLaborLedger(ctx: ExportContext): Promise<void> {
       setCell(ws.getCell(r1, col), day.inAt ? fmtHHMM(day.inAt, tz) : "");
       setCell(ws.getCell(r2, col), day.outAt ? fmtHHMM(day.outAt, tz) : "");
 
-      const otOrManDays = isDaily
-        ? round2(day.base + day.overtime + day.holiday + day.holidayOvertime)
-        : round2(day.overtime + day.holiday + day.holidayOvertime);
-      setCell(ws.getCell(r3, col), otOrManDays || "");
+      if (isDaily) {
+        // 일용직/사업소득자: 공수(소수) 그대로
+        const manDays = round2(day.base + day.overtime + day.holiday + day.holidayOvertime);
+        setCell(ws.getCell(r3, col), manDays || "");
+      } else {
+        // 월급/시급: 연장+휴일+휴일연장 시간을 H:MM으로
+        const hrs = day.overtime + day.holiday + day.holidayOvertime;
+        if (hrs > 0) setCell(ws.getCell(r3, col), hrs / 24, { numFmt: HM_FMT });
+        else setCell(ws.getCell(r3, col), "");
+      }
 
       const cat = dayCategoryByD.get(d) || "weekday";
       if (cat !== "weekday") {
@@ -514,6 +538,13 @@ export async function exportLaborLedger(ctx: ExportContext): Promise<void> {
     const allowances = getWorkerAllowances(w, ctx.settings);
     const unit = unitRate(w);
     const empType = empTypeLabel(w.employmentType);
+
+    // 비과세 분리 (월급제만): 식대/통신/(자가보유 시)자가운전을 월급에서 비과세로 분리
+    const isSalaryW = w.employmentType === "salary";
+    const displayTransport = isSalaryW && !w.hasVehicle ? 0 : allowances.transport;
+    const taxFreeAllowance = isSalaryW
+      ? allowances.meal + allowances.phone + (w.hasVehicle ? allowances.transport : 0)
+      : 0;
 
     // 기본급 / 연장수당 추정 (단순화 — 시뮬레이터의 정밀 계산은 별도 탭에서)
     let basePay = 0;
@@ -546,7 +577,10 @@ export async function exportLaborLedger(ctx: ExportContext): Promise<void> {
     }
 
     // 4대보험 / 세금 (간이)
-    const taxable = basePay + overtimePay + holidayPay + holidayOTPay + nightPay;
+    // 월급제는 비과세 분리분(cappedTaxFree)을 차감한 과세표준 기준
+    const variablePay = overtimePay + holidayPay + holidayOTPay + nightPay;
+    const cappedTaxFree = Math.min(taxFreeAllowance, basePay);
+    const taxable = isSalaryW ? basePay - cappedTaxFree + variablePay : basePay + variablePay;
     let nps = 0, hi = 0, ltc = 0, ei = 0, it = 0, lit = 0;
     if (w.employmentType === "salary" || w.employmentType === "hourly") {
       nps = Math.floor(taxable * ctx.settings.insuranceRates.nationalPensionRate);
@@ -572,7 +606,11 @@ export async function exportLaborLedger(ctx: ExportContext): Promise<void> {
     const advance = w.deductionSettings.cashAdvance || 0;
     const customDed = (w.deductionSettings.customDeductions || []).reduce((s, x) => s + (x.amount || 0), 0);
 
-    const grossSum = Math.floor(taxable + allowances.meal + allowances.transport + allowances.phone);
+    const grossSum = Math.floor(
+      isSalaryW
+        ? basePay + variablePay // 월급(수당 포함) + 변동수당
+        : basePay + variablePay + allowances.meal + allowances.transport + allowances.phone
+    );
     const dedSum = nps + hi + ltc + ei + it + lit + housing + advance + customDed;
     const netPay = Math.max(0, grossSum - dedSum);
 
@@ -590,8 +628,8 @@ export async function exportLaborLedger(ctx: ExportContext): Promise<void> {
     ws.mergeCells(r1, summaryStartCol + 2, r3, summaryStartCol + 2);
     setCell(ws.getCell(r1, summaryStartCol + 2), unit, { numFmt: NUM, align: "right" });
 
-    // 기본급 (r1) / 연장수당 (r2)
-    setCell(ws.getCell(r1, summaryStartCol + 3), Math.floor(basePay), { numFmt: NUM, align: "right" });
+    // 기본급 (r1) / 연장수당 (r2) — 월급제는 과세 기본급(비과세 분리분 차감)
+    setCell(ws.getCell(r1, summaryStartCol + 3), Math.floor(isSalaryW ? basePay - cappedTaxFree : basePay), { numFmt: NUM, align: "right" });
     setCell(ws.getCell(r2, summaryStartCol + 3), Math.floor(overtimePay), { numFmt: NUM, align: "right" });
 
     // 식대 (r1) / 휴일수당 (r2)
@@ -599,10 +637,10 @@ export async function exportLaborLedger(ctx: ExportContext): Promise<void> {
     setCell(ws.getCell(r2, summaryStartCol + 4), Math.floor(holidayPay), { numFmt: NUM, align: "right" });
 
     // 자가운전 (r1) / 휴일연장 (r2)
-    setCell(ws.getCell(r1, summaryStartCol + 5), allowances.transport, { numFmt: NUM, align: "right" });
+    setCell(ws.getCell(r1, summaryStartCol + 5), displayTransport, { numFmt: NUM, align: "right" });
     setCell(ws.getCell(r2, summaryStartCol + 5), Math.floor(holidayOTPay), { numFmt: NUM, align: "right" });
 
-    // 통신비 (r1) / 심야수당 (r2)
+    // 통신비 (r1) / 야간수당 (r2)
     setCell(ws.getCell(r1, summaryStartCol + 6), allowances.phone, { numFmt: NUM, align: "right" });
     setCell(ws.getCell(r2, summaryStartCol + 6), Math.floor(nightPay), { numFmt: NUM, align: "right" });
 
@@ -686,6 +724,12 @@ interface PaySummary {
 
 function computePaySummary(w: Worker, a: WorkerMonthAggregate, settings: AllSettings): PaySummary {
   const allowances = getWorkerAllowances(w, settings);
+  // 비과세 분리 (월급제만)
+  const isSalaryW = w.employmentType === "salary";
+  const displayTransport = isSalaryW && !w.hasVehicle ? 0 : allowances.transport;
+  const taxFreeAllowance = isSalaryW
+    ? allowances.meal + allowances.phone + (w.hasVehicle ? allowances.transport : 0)
+    : 0;
   let basePay = 0, overtimePay = 0, holidayPay = 0, holidayOTPay = 0, nightPay = 0;
 
   if (w.employmentType === "salary") {
@@ -712,7 +756,9 @@ function computePaySummary(w: Worker, a: WorkerMonthAggregate, settings: AllSett
     nightPay = a.totalNight * hourlyEquivalent * settings.overtimeRules.nightRate;
   }
 
-  const taxable = basePay + overtimePay + holidayPay + holidayOTPay + nightPay;
+  const variablePay = overtimePay + holidayPay + holidayOTPay + nightPay;
+  const cappedTaxFree = Math.min(taxFreeAllowance, basePay);
+  const taxable = isSalaryW ? basePay - cappedTaxFree + variablePay : basePay + variablePay;
   let nps = 0, hi = 0, ltc = 0, ei = 0, it = 0, lit = 0;
   if (w.employmentType === "salary" || w.employmentType === "hourly") {
     nps = Math.floor(taxable * settings.insuranceRates.nationalPensionRate);
@@ -737,17 +783,27 @@ function computePaySummary(w: Worker, a: WorkerMonthAggregate, settings: AllSett
   const housing = w.deductionSettings.housingFee || 0;
   const advance = w.deductionSettings.cashAdvance || 0;
   const customDed = (w.deductionSettings.customDeductions || []).reduce((s, x) => s + (x.amount || 0), 0);
-  const grossSum = Math.floor(taxable + allowances.meal + allowances.transport + allowances.phone);
+  const grossSum = Math.floor(
+    isSalaryW
+      ? basePay + variablePay
+      : basePay + variablePay + allowances.meal + allowances.transport + allowances.phone
+  );
   const dedSum = nps + hi + ltc + ei + it + lit + housing + advance + customDed;
   const netPay = Math.max(0, grossSum - dedSum);
 
   return {
-    basePay: Math.floor(basePay),
+    // 월급제 기본급은 비과세 분리분을 뺀 '과세 기본급' (기본급+비과세항목 = 지급총액)
+    basePay: Math.floor(isSalaryW ? basePay - cappedTaxFree : basePay),
     overtimePay: Math.floor(overtimePay),
     holidayPay: Math.floor(holidayPay),
     holidayOTPay: Math.floor(holidayOTPay),
     nightPay: Math.floor(nightPay),
-    allowances,
+    allowances: {
+      meal: allowances.meal,
+      transport: displayTransport,
+      phone: allowances.phone,
+      total: allowances.meal + displayTransport + allowances.phone,
+    },
     nps, hi, ltc, ei, it, lit,
     housing, advance, customDed,
     grossSum, dedSum, netPay,
@@ -928,7 +984,7 @@ export async function exportPayslips(ctx: ExportContext): Promise<void> {
       writeRow(11, "연장수당",       pay.overtimePay,         "고용보험",     pay.ei);
       writeRow(12, "휴일수당",       pay.holidayPay,          "소 득 세",     pay.it);
       writeRow(13, "휴일연장수당",   pay.holidayOTPay,        "지방소득세",   pay.lit);
-      writeRow(14, "심야수당",       pay.nightPay,            "숙소료",       pay.housing);
+      writeRow(14, "야간수당",       pay.nightPay,            "숙소료",       pay.housing);
       writeRow(15, "직책수당",       0,                       "가 불 금",     pay.advance);
       writeRow(16, "성과금",         0,                       "기  타",       pay.customDed);
       writeRow(17, "통신비",         pay.allowances.phone,    "",             "");
@@ -1043,7 +1099,7 @@ export async function exportAttendanceBook(ctx: ExportContext): Promise<void> {
     { label: "기본 시급", pick: (w) => w.salarySettings.hourlyRate },
     { label: "연장/휴일 가산율", pick: () => ctx.settings.overtimeRules.weekdayOvertimeRate },
     { label: "휴일연장 가산율", pick: () => ctx.settings.overtimeRules.holidayOvertimeRate },
-    { label: "심야 가산율", pick: () => ctx.settings.overtimeRules.nightRate },
+    { label: "야간 가산율", pick: () => ctx.settings.overtimeRules.nightRate },
     { label: "점심시간(시간)", pick: () => ctx.settings.workTime.lunchDuration },
     { label: "변동/고정 수당", pick: () => "" },
     { label: "성과금", pick: () => 0 },
@@ -1120,13 +1176,13 @@ export async function exportAttendanceBook(ctx: ExportContext): Promise<void> {
     wsAtt.getCell(2, startCol).value = a.worker.name;
   });
 
-  // 3행: 컬럼 헤더 — 일, 요일, 휴일, [출근, 퇴근, 기본, 연장, 휴일, 휴일연장, 심야] × n
+  // 3행: 컬럼 헤더 — 일, 요일, 휴일, [출근, 퇴근, 기본, 연장, 휴일, 휴일연장, 야간] × n
   const fixedColHdrs = ["일", "요일", "휴일"];
   fixedColHdrs.forEach((h, i) => {
     setHeader(wsAtt.getCell(3, i + 1));
     wsAtt.getCell(3, i + 1).value = h;
   });
-  const perWorkerHdrs = ["출근", "퇴근", "기본", "연장", "휴일", "휴일연장", "심야"];
+  const perWorkerHdrs = ["출근", "퇴근", "기본", "연장", "휴일", "휴일연장", "야간"];
   agg.forEach((_, idx) => {
     const startCol = 4 + idx * 7;
     perWorkerHdrs.forEach((h, i) => {
@@ -1155,15 +1211,26 @@ export async function exportAttendanceBook(ctx: ExportContext): Promise<void> {
     agg.forEach((a, idx) => {
       const startCol = 4 + idx * 7;
       const day = a.byDay.get(d)!;
+      const isDailyW = a.worker.employmentType === "daily" || a.worker.employmentType === "business";
       const inS = day.inAt ? fmtHHMM(day.inAt, tz) : "";
       const outS = day.outAt ? fmtHHMM(day.outAt, tz) : "";
+      // 일용직: 공수(소수) 그대로 / 월급·시급: 시간을 H:MM으로
+      const putHM = (cell: ExcelJS.Cell, hours: number, zeroWhen: boolean) => {
+        if (isDailyW) {
+          setCell(cell, hours ? round2(hours) : (zeroWhen ? 0 : ""));
+        } else if (hours > 0) {
+          setCell(cell, hours / 24, { numFmt: HM_FMT });
+        } else {
+          setCell(cell, zeroWhen ? 0 : "");
+        }
+      };
       setCell(wsAtt.getCell(row, startCol + 0), inS);
       setCell(wsAtt.getCell(row, startCol + 1), outS);
-      setCell(wsAtt.getCell(row, startCol + 2), day.base ? round2(day.base) : (day.inAt ? 0 : ""));
-      setCell(wsAtt.getCell(row, startCol + 3), day.overtime ? round2(day.overtime) : (day.inAt && !isH ? 0 : ""));
-      setCell(wsAtt.getCell(row, startCol + 4), day.holiday ? round2(day.holiday) : (day.inAt && isH ? 0 : ""));
-      setCell(wsAtt.getCell(row, startCol + 5), day.holidayOvertime ? round2(day.holidayOvertime) : (day.inAt && isH ? 0 : ""));
-      setCell(wsAtt.getCell(row, startCol + 6), day.night ? round2(day.night) : (day.inAt ? 0 : ""));
+      putHM(wsAtt.getCell(row, startCol + 2), day.base, !!day.inAt);
+      putHM(wsAtt.getCell(row, startCol + 3), day.overtime, !!(day.inAt && !isH));
+      putHM(wsAtt.getCell(row, startCol + 4), day.holiday, !!(day.inAt && isH));
+      putHM(wsAtt.getCell(row, startCol + 5), day.holidayOvertime, !!(day.inAt && isH));
+      putHM(wsAtt.getCell(row, startCol + 6), day.night, !!day.inAt);
       if (isH) {
         for (let i = 0; i < 7; i++) wsAtt.getCell(row, startCol + i).fill = { type: "pattern", pattern: "solid", fgColor: { argb: "FFFFF7ED" } };
       }
@@ -1179,13 +1246,18 @@ export async function exportAttendanceBook(ctx: ExportContext): Promise<void> {
 
   agg.forEach((a, idx) => {
     const startCol = 4 + idx * 7;
+    const isDailyW = a.worker.employmentType === "daily" || a.worker.employmentType === "business";
+    const putSumHM = (cell: ExcelJS.Cell, hours: number) => {
+      if (isDailyW) setCell(cell, round2(hours), { bold: true });
+      else setCell(cell, hours / 24, { bold: true, numFmt: HM_FMT });
+    };
     setCell(wsAtt.getCell(sumRow, startCol + 0), "", { bold: true });
     setCell(wsAtt.getCell(sumRow, startCol + 1), "", { bold: true });
-    setCell(wsAtt.getCell(sumRow, startCol + 2), a.totalBase, { bold: true });
-    setCell(wsAtt.getCell(sumRow, startCol + 3), a.totalOvertime, { bold: true });
-    setCell(wsAtt.getCell(sumRow, startCol + 4), a.totalHoliday, { bold: true });
-    setCell(wsAtt.getCell(sumRow, startCol + 5), a.totalHolidayOvertime, { bold: true });
-    setCell(wsAtt.getCell(sumRow, startCol + 6), a.totalNight, { bold: true });
+    putSumHM(wsAtt.getCell(sumRow, startCol + 2), a.totalBase);
+    putSumHM(wsAtt.getCell(sumRow, startCol + 3), a.totalOvertime);
+    putSumHM(wsAtt.getCell(sumRow, startCol + 4), a.totalHoliday);
+    putSumHM(wsAtt.getCell(sumRow, startCol + 5), a.totalHolidayOvertime);
+    putSumHM(wsAtt.getCell(sumRow, startCol + 6), a.totalNight);
     for (let i = 0; i < 7; i++) {
       wsAtt.getCell(sumRow, startCol + i).fill = { type: "pattern", pattern: "solid", fgColor: { argb: "FFE2E8F0" } };
     }
@@ -1202,7 +1274,7 @@ export async function exportAttendanceBook(ctx: ExportContext): Promise<void> {
     wsAtt.getColumn(sc + 3).width = 6;  // 연장
     wsAtt.getColumn(sc + 4).width = 6;  // 휴일
     wsAtt.getColumn(sc + 5).width = 7;  // 휴일연장
-    wsAtt.getColumn(sc + 6).width = 6;  // 심야
+    wsAtt.getColumn(sc + 6).width = 6;  // 야간
   }
 
   const buf = await wb.xlsx.writeBuffer();

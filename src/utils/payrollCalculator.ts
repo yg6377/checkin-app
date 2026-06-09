@@ -28,7 +28,7 @@ export interface MonthlySimulationInput {
   afternoonOvertimeDays: number; // 연장1단계 일수
   eveningOvertimeDays: number; // 연장2단계 일수
   holidayDays: number; // 휴일 근무 일수
-  nightHours: number; // 심야 시간 총 시간 (hourly, salary, daily, etc.)
+  nightHours: number; // 야간 시간 총 시간 (hourly, salary, daily, etc.)
   overtimeHoursWeekly: number; // 시급제/월급제용 연장근로 시간
   cashAdvanceInput: number; // 월 가불금
 }
@@ -185,9 +185,22 @@ export function calculatePayroll(
     nightPay = input.nightHours * hourlyEquivalent * settings.overtimeRules.nightRate;
   }
 
-  // Include allowance defaults or overrides
-  const allowanceSum = allowances.total;
-  const grossSalary = basePay + overtimePay + holidayPay + nightPay + allowanceSum;
+  // 비과세 수당 분리 (월급제만):
+  // 식대/통신/(자가보유 시)자가운전보조금은 이미 월급(basePay)에 포함된 금액이다.
+  // 세금 절약을 위해 이를 비과세로 떼어내 과세표준을 낮춘다 — 지급 총액(월급)은 그대로 유지한다.
+  const isSalary = type === "salary";
+  const variablePay = overtimePay + holidayPay + nightPay;
+
+  // 명세서 표시용 비과세 항목 (월급제·자가 미보유면 자가운전 0)
+  const displayTransport = isSalary && !worker.hasVehicle ? 0 : allowances.transport;
+  const taxFreeAllowance = isSalary
+    ? allowances.meal + allowances.phone + (worker.hasVehicle ? allowances.transport : 0)
+    : 0;
+  const cappedTaxFree = Math.min(taxFreeAllowance, basePay); // 월급 초과 방지
+
+  const grossSalary = isSalary
+    ? basePay + variablePay // 월급(수당 포함) + 변동수당. 수당을 별도로 더하지 않음
+    : basePay + variablePay + allowances.total; // 그 외 고용형태: 기존처럼 수당을 가산
 
   // 2. Calculations for Deductions (Korean social security and taxes)
   let nationalPension = 0;
@@ -197,8 +210,10 @@ export function calculatePayroll(
   let incomeTax = 0;
   let localIncomeTax = 0;
 
-  // Base income for tax calculations (typically gross except non-taxable meal/etc., let's use gross base pay for simplification)
-  const taxableSalary = basePay + overtimePay + holidayPay + nightPay;
+  // 과세표준: 월급제는 비과세 분리분만큼 차감
+  const taxableSalary = isSalary
+    ? basePay - cappedTaxFree + variablePay
+    : basePay + variablePay;
 
   if (type === "salary" || type === "hourly") {
     // 4 major social insurances apply to Salary & Hourly regular contracts
@@ -263,13 +278,14 @@ export function calculatePayroll(
   const netPay = Math.max(0, grossSalary - deductionsTotal);
 
   return {
-    basePay: Math.floor(basePay),
+    // 월급제 기본급은 비과세 분리분을 뺀 '과세 기본급'으로 표시 (기본급+비과세항목 = 지급총액)
+    basePay: Math.floor(isSalary ? basePay - cappedTaxFree : basePay),
     ordinaryHourlyRate: Math.floor(ordinaryHourlyRate),
     allowances: {
       meal: allowances.meal,
-      transport: allowances.transport,
+      transport: displayTransport,
       phone: allowances.phone,
-      total: allowances.total,
+      total: allowances.meal + displayTransport + allowances.phone,
     },
     overtimePay: Math.floor(overtimePay),
     holidayPay: Math.floor(holidayPay),

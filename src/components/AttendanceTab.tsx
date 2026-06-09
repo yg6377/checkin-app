@@ -23,7 +23,7 @@ import {
   CheckCircle2,
 } from "lucide-react";
 import { exportLaborLedger, exportAttendanceBook, exportPayslips } from "../utils/excelExporter";
-import { calculateDailyBreakdown, isHolidayDate } from "../utils/attendanceHours";
+import { calculateDailyBreakdown, getDayType, isHolidayDate } from "../utils/attendanceHours";
 import { formatZonedTime, getAppTimeZone, getZonedYmd, zonedWallTimeToUtcIso } from "../utils/datetime";
 
 // ============================================================
@@ -99,6 +99,12 @@ export const AttendanceTab: React.FC = () => {
   // 급여명세서 발급 대상 선택 모달
   const [payslipPickerOpen, setPayslipPickerOpen] = useState(false);
   const [payslipSelected, setPayslipSelected] = useState<Set<string>>(new Set());
+  const activeWorkers = useMemo(() => workers.filter((w) => !w.retireDate), [workers]);
+  const manualWorkerOptions = useMemo(() => {
+    if (!manualWorkerId || activeWorkers.some((w) => w.id === manualWorkerId)) return activeWorkers;
+    const selected = workers.find((w) => w.id === manualWorkerId);
+    return selected ? [selected, ...activeWorkers] : activeWorkers;
+  }, [activeWorkers, manualWorkerId, workers]);
 
   // preset 변경 시 날짜 자동 세팅
   useEffect(() => {
@@ -167,7 +173,7 @@ export const AttendanceTab: React.FC = () => {
     const breakdown = calculateDailyBreakdown(
       r.checkInAt,
       r.checkOutAt,
-      holiday,
+      getDayType(r.workDate, holidays),
       worker.employmentType,
       settings
     );
@@ -396,7 +402,8 @@ export const AttendanceTab: React.FC = () => {
       setManualCheckOut(record.checkOutAt ? formatZonedTime(record.checkOutAt, tz, "") : "");
       setManualNote("관리자 수동 수정");
     } else {
-      setManualWorkerId(workerId !== "all" ? workerId : workers[0]?.id || "");
+      const selectedWorker = workers.find((w) => w.id === workerId);
+      setManualWorkerId(selectedWorker && !selectedWorker.retireDate ? workerId : activeWorkers[0]?.id || "");
       setManualWorkDate(fromDate);
       setManualCheckIn("");
       setManualCheckOut("");
@@ -1026,9 +1033,9 @@ export const AttendanceTab: React.FC = () => {
                     required
                   >
                     <option value="">근로자 선택</option>
-                    {workers.map((w) => (
+                    {manualWorkerOptions.map((w) => (
                       <option key={w.id} value={w.id}>
-                        [{w.workerId}] {w.name}
+                        [{w.workerId}] {w.name}{w.retireDate ? ` (퇴사 ${w.retireDate})` : ""}
                       </option>
                     ))}
                   </select>

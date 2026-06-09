@@ -236,7 +236,7 @@ export const SimulatorTab: React.FC = () => {
 
               <div>
                 <div className="flex justify-between text-xs font-semibold mb-1">
-                  <span className="text-gray-500">심야 야간 시간 (hr)</span>
+                  <span className="text-gray-500">야간 시간 (hr)</span>
                   <span className="text-purple-600 font-bold">{nightHours} hr</span>
                 </div>
                 <input
@@ -363,7 +363,7 @@ export const SimulatorTab: React.FC = () => {
 
                     {result.nightPay > 0 && (
                       <div className="flex justify-between p-2.5 px-3 bg-stone-50">
-                        <span className="text-gray-500">심야 야간 가중수당</span>
+                        <span className="text-gray-500">야간 가중수당</span>
                         <span className="font-bold text-gray-900">₩{result.nightPay.toLocaleString()}</span>
                       </div>
                     )}

@@ -1,7 +1,8 @@
 import React, { useState } from "react";
 import { useApp as useFirebase } from "../context/SupabaseContext";
-import { AllSettings, Holiday } from "../types";
+import { AllSettings, AttendanceSnapRule, Holiday, SnapDayType, SnapKind } from "../types";
 import { DEFAULT_DEPARTMENT_OPTIONS, DEFAULT_JOB_OPTIONS, DEFAULT_RANK_OPTIONS } from "../constants/workerOptions";
+import { DEFAULT_SETTINGS } from "../data/defaults";
 import { DEFAULT_TIME_ZONE, TIME_ZONE_OPTIONS } from "../utils/datetime";
 import {
   Settings,
@@ -266,6 +267,7 @@ export const SettingsTab: React.FC = () => {
     e.preventDefault();
     const data = new FormData(e.currentTarget);
     const updated = {
+      ...settings.overtimeRules, // snapRules 등 폼에 없는 필드 보존
       weekdayOvertimeRate: Number(data.get("weekdayOvertimeRate")),
       holidayRate: Number(data.get("holidayRate")),
       holidayOvertimeRate: Number(data.get("holidayOvertimeRate")),
@@ -275,6 +277,45 @@ export const SettingsTab: React.FC = () => {
     };
     updateSetting("overtimeRules", updated);
     alert("할증 기준 정책 설정이 안전하게 기안 및 보정되었습니다.");
+  };
+
+  // ── 타각 보정(스냅) 규칙 관리 ──
+  const getSnapRules = (): AttendanceSnapRule[] => settings.overtimeRules.snapRules ?? [];
+
+  const updateSnapRules = (next: AttendanceSnapRule[]) => {
+    updateSetting("overtimeRules", { ...settings.overtimeRules, snapRules: next });
+  };
+
+  const addSnapRule = () => {
+    const newRule: AttendanceSnapRule = {
+      id: crypto.randomUUID(),
+      dayType: "weekday",
+      kind: "in",
+      fromTime: "06:00",
+      toTime: "08:30",
+      snapTo: "08:00",
+    };
+    updateSnapRules([...getSnapRules(), newRule]);
+  };
+
+  const patchSnapRule = (id: string, patch: Partial<AttendanceSnapRule>) => {
+    updateSnapRules(getSnapRules().map((r) => (r.id === id ? { ...r, ...patch } : r)));
+  };
+
+  const removeSnapRule = (id: string) => {
+    updateSnapRules(getSnapRules().filter((r) => r.id !== id));
+  };
+
+  const loadDefaultSnapRules = () => {
+    const defaults = DEFAULT_SETTINGS.overtimeRules.snapRules ?? [];
+    updateSnapRules(defaults.map((r) => ({ ...r, id: crypto.randomUUID() })));
+  };
+
+  const SNAP_DAY_LABELS: Record<SnapDayType, string> = {
+    weekday: "평일",
+    saturday: "토요일",
+    sunday: "일요일",
+    holiday: "공휴일",
   };
 
   const saveDailyRules = (e: React.FormEvent<HTMLFormElement>) => {
@@ -932,7 +973,7 @@ export const SettingsTab: React.FC = () => {
                 <div className="space-y-4">
                   <div className="grid grid-cols-2 gap-3">
                     <div>
-                      <label className="block text-xs font-semibold text-gray-500 mb-1">심야 인정 구간 (시작) *</label>
+                      <label className="block text-xs font-semibold text-gray-500 mb-1">야간 인정 구간 (시작) *</label>
                       <input
                         type="time"
                         name="nightStart"
@@ -942,7 +983,7 @@ export const SettingsTab: React.FC = () => {
                       />
                     </div>
                     <div>
-                      <label className="block text-xs font-semibold text-gray-500 mb-1">심야 인정 구간 (종료) *</label>
+                      <label className="block text-xs font-semibold text-gray-500 mb-1">야간 인정 구간 (종료) *</label>
                       <input
                         type="time"
                         name="nightEnd"
@@ -954,7 +995,7 @@ export const SettingsTab: React.FC = () => {
                   </div>
 
                   <div>
-                    <label className="block text-xs font-semibold text-gray-400 mb-1">야간 근로 심야 배율 *</label>
+                    <label className="block text-xs font-semibold text-gray-400 mb-1">야간 근로 가산 배율 *</label>
                     <input
                       type="number"
                       step="0.1"
@@ -1057,6 +1098,104 @@ export const SettingsTab: React.FC = () => {
                 </div>
               </div>
             </form>
+
+            {/* 타각 보정(스냅) 규칙 */}
+            <div className="pt-6 border-t border-gray-150">
+              <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-3">
+                <div>
+                  <h4 className="text-sm font-bold text-gray-800 flex items-center gap-1.5">
+                    <Clock className="w-4 h-4 text-emerald-600" />
+                    타각 보정 규칙 (출퇴근 인정 시각 자동 보정)
+                  </h4>
+                  <p className="text-[11px] text-gray-400 mt-1 leading-relaxed">
+                    실제 타각이 아래 구간에 들어오면 지정한 <b>인정 시각</b>으로 보정해 근무시간·공수를 산정합니다.
+                    어느 구간에도 들지 않으면 실제 타각 그대로 인정됩니다. (구간이 서로 겹치지 않도록 입력하세요.)
+                  </p>
+                </div>
+                <button
+                  type="button"
+                  onClick={addSnapRule}
+                  className="shrink-0 inline-flex items-center gap-1.5 rounded-lg bg-gray-900 px-3 py-1.5 text-xs font-semibold text-white hover:bg-gray-800"
+                >
+                  <Plus className="w-3.5 h-3.5" /> 규칙 추가
+                </button>
+              </div>
+
+              {getSnapRules().length === 0 ? (
+                <div className="mt-4 rounded-lg border border-dashed border-gray-200 bg-gray-50 px-4 py-6 text-center">
+                  <p className="text-xs text-gray-400 mb-3">등록된 보정 규칙이 없습니다.</p>
+                  <button
+                    type="button"
+                    onClick={loadDefaultSnapRules}
+                    className="inline-flex items-center gap-1.5 rounded-lg bg-emerald-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-emerald-500"
+                  >
+                    <RefreshCw className="w-3.5 h-3.5" /> 기본 규칙 불러오기
+                  </button>
+                  <p className="text-[10px] text-gray-400 mt-2">
+                    평일·토·일·공휴일 표준 보정 규칙을 한 번에 등록합니다. 이후 자유롭게 수정·삭제할 수 있어요.
+                  </p>
+                </div>
+              ) : (
+                <div className="mt-4 space-y-2">
+                  {getSnapRules().map((rule) => (
+                    <div
+                      key={rule.id}
+                      className="flex flex-wrap items-center gap-2 rounded-lg border border-gray-200 bg-white p-2.5"
+                    >
+                      <select
+                        value={rule.dayType}
+                        onChange={(e) => patchSnapRule(rule.id, { dayType: e.target.value as SnapDayType })}
+                        className="px-2 py-1 border border-gray-200 rounded text-xs bg-white font-semibold text-gray-700"
+                      >
+                        {(Object.keys(SNAP_DAY_LABELS) as SnapDayType[]).map((dt) => (
+                          <option key={dt} value={dt}>
+                            {SNAP_DAY_LABELS[dt]}
+                          </option>
+                        ))}
+                      </select>
+                      <select
+                        value={rule.kind}
+                        onChange={(e) => patchSnapRule(rule.id, { kind: e.target.value as SnapKind })}
+                        className="px-2 py-1 border border-gray-200 rounded text-xs bg-white font-semibold text-gray-700"
+                      >
+                        <option value="in">출근</option>
+                        <option value="out">퇴근</option>
+                      </select>
+                      <div className="flex items-center gap-1">
+                        <input
+                          type="time"
+                          value={rule.fromTime}
+                          onChange={(e) => patchSnapRule(rule.id, { fromTime: e.target.value })}
+                          className="px-2 py-1 border border-gray-200 rounded text-xs bg-white"
+                        />
+                        <span className="text-gray-400 text-xs">~</span>
+                        <input
+                          type="time"
+                          value={rule.toTime}
+                          onChange={(e) => patchSnapRule(rule.id, { toTime: e.target.value })}
+                          className="px-2 py-1 border border-gray-200 rounded text-xs bg-white"
+                        />
+                      </div>
+                      <span className="text-emerald-600 text-sm font-bold">→</span>
+                      <input
+                        type="time"
+                        value={rule.snapTo}
+                        onChange={(e) => patchSnapRule(rule.id, { snapTo: e.target.value })}
+                        className="px-2 py-1 border border-emerald-300 rounded text-xs bg-emerald-50 font-semibold text-emerald-800"
+                      />
+                      <button
+                        type="button"
+                        onClick={() => removeSnapRule(rule.id)}
+                        className="ml-auto p-1.5 text-gray-400 hover:text-rose-600"
+                        title="규칙 삭제"
+                      >
+                        <Trash2 className="w-4 h-4" />
+                      </button>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
           </div>
         )}
 
@@ -1310,6 +1449,9 @@ export const SettingsTab: React.FC = () => {
               </h3>
               <p className="text-xs text-gray-400 mt-1">
                 계약 등록 시 근로자 프로필에서 개별 할당 수당을 임의 상속하기 위한 공통 수당 기본값 테이블입니다.
+              </p>
+              <p className="text-[11px] text-emerald-700 bg-emerald-50 border border-emerald-100 rounded-lg px-3 py-2 mt-2">
+                <b>월급제</b>는 이 금액들을 월급에 더하지 않고, 월급 안에서 비과세로 분리해 과세표준을 낮춥니다(세금 절약). 자가운전보조금은 근로자별 <b>자가 차량 보유</b> 체크 시에만 분리됩니다.
               </p>
             </div>
 

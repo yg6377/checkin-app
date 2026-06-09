@@ -2,10 +2,10 @@ import React, { useState } from "react";
 import { useApp as useFirebase, WorkerCredentials } from "../context/SupabaseContext";
 import { Worker } from "../types";
 import { DEFAULT_DEPARTMENT_OPTIONS, DEFAULT_JOB_OPTIONS, DEFAULT_RANK_OPTIONS, withCurrentOption } from "../constants/workerOptions";
-import { Search, UserPlus, UserCheck, ShieldAlert, CreditCard, Building, Phone, Briefcase, Trash2, Edit2, X, AlertCircle, KeyRound, Copy, Check, Globe } from "lucide-react";
+import { Search, UserPlus, UserCheck, ShieldAlert, CreditCard, Building, Phone, Edit2, X, AlertCircle, KeyRound, Copy, Check, Globe, UserX } from "lucide-react";
 
 export const WorkerTab: React.FC = () => {
-  const { workers, addWorker, updateWorker, deleteWorker, resetWorkerPassword, fetchResidentNumber, settings } = useFirebase();
+  const { workers, addWorker, updateWorker, retireWorker, resetWorkerPassword, fetchResidentNumber, settings } = useFirebase();
   const [credentialsModal, setCredentialsModal] = useState<{
     title: string;
     worker: { name: string; workerId: string };
@@ -13,6 +13,7 @@ export const WorkerTab: React.FC = () => {
   } | null>(null);
   const [searchTerm, setSearchTerm] = useState("");
   const [typeFilter, setTypeFilter] = useState("all");
+  const [statusFilter, setStatusFilter] = useState<"active" | "retired" | "all">("active");
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [editingWorker, setEditingWorker] = useState<Worker | null>(null);
 
@@ -49,6 +50,7 @@ export const WorkerTab: React.FC = () => {
   const [mealOverride, setMealOverride] = useState("");
   const [transportOverride, setTransportOverride] = useState("");
   const [phoneOverride, setPhoneOverride] = useState("");
+  const [hasVehicle, setHasVehicle] = useState(false); // 자가 차량 보유 → 자가운전보조금 비과세 분리
 
   // Deductions settings
   const [housingFee, setHousingFee] = useState("");
@@ -106,6 +108,7 @@ export const WorkerTab: React.FC = () => {
     setMealOverride("");
     setTransportOverride("");
     setPhoneOverride("");
+    setHasVehicle(false);
 
     setHousingFee("0");
     setCashAdvance("0");
@@ -156,6 +159,7 @@ export const WorkerTab: React.FC = () => {
     setMealOverride(worker.salarySettings.allowances.meal === null ? "" : String(worker.salarySettings.allowances.meal));
     setTransportOverride(worker.salarySettings.allowances.transport === null ? "" : String(worker.salarySettings.allowances.transport));
     setPhoneOverride(worker.salarySettings.allowances.phone === null ? "" : String(worker.salarySettings.allowances.phone));
+    setHasVehicle(worker.hasVehicle ?? false);
 
     setHousingFee(String(worker.deductionSettings.housingFee || 0));
     setCashAdvance(String(worker.deductionSettings.cashAdvance || 0));
@@ -223,6 +227,7 @@ export const WorkerTab: React.FC = () => {
       homeContact,
       emergencyName,
       emergencyRelation,
+      hasVehicle,
       salarySettings: {
         monthlyBase: Number(monthlyBase) || 0,
         hourlyRate: Number(hourlyRate) || 0,
@@ -282,15 +287,29 @@ export const WorkerTab: React.FC = () => {
     }
   };
 
-  const handleDelete = async (id: string, wId: string) => {
-    if (window.confirm(`정말로 사번 ${wId} 근로자를 영구 삭제하시겠습니까? 관련 데이터가 소멸합니다.`)) {
+  const handleRetire = async (worker: Worker) => {
+    if (!worker.id) {
+      alert("근로자 DB 식별자가 없어 퇴사 처리할 수 없습니다.");
+      return;
+    }
+    const today = new Date().toISOString().split("T")[0];
+    const retireDate = worker.retireDate || today;
+    if (worker.retireDate) {
+      alert(`${worker.name} 님은 이미 ${worker.retireDate} 퇴사 처리되어 있습니다.`);
+      return;
+    }
+    if (window.confirm(`${worker.name} (${worker.workerId}) 님을 퇴사 처리할까요?\n근로자 앱 로그인은 즉시 차단되고, 과거 근태와 기본 정산 정보는 보존됩니다.`)) {
       try {
-        await deleteWorker(id || wId);
+        await retireWorker(worker.id, retireDate);
       } catch (err: any) {
-        alert(err.message || "삭제 도중 권한 오류가 발생했습니다.");
+        alert(err.message || "퇴사 처리 도중 권한 오류가 발생했습니다.");
       }
     }
   };
+
+  const isRetired = (w: Worker) => Boolean(w.retireDate);
+  const activeCount = workers.filter((w) => !isRetired(w)).length;
+  const retiredCount = workers.length - activeCount;
 
   const filteredWorkers = workers.filter((w) => {
     const s = searchTerm.toLowerCase();
@@ -302,8 +321,12 @@ export const WorkerTab: React.FC = () => {
       (w.duty && w.duty.toLowerCase().includes(s)) ||
       (w.job && w.job.toLowerCase().includes(s));
     
-    if (typeFilter === "all") return matchText;
-    return matchText && w.employmentType === typeFilter;
+    const matchType = typeFilter === "all" || w.employmentType === typeFilter;
+    const matchStatus =
+      statusFilter === "all" ||
+      (statusFilter === "active" && !isRetired(w)) ||
+      (statusFilter === "retired" && isRetired(w));
+    return matchText && matchType && matchStatus;
   });
 
   const departmentBaseOptions = settings?.workTime?.departments?.length ? settings.workTime.departments : DEFAULT_DEPARTMENT_OPTIONS;
@@ -312,6 +335,11 @@ export const WorkerTab: React.FC = () => {
   const departmentOptions = withCurrentOption(departmentBaseOptions, department);
   const dutyOptions = withCurrentOption(rankBaseOptions, duty);
   const jobOptions = withCurrentOption(jobBaseOptions, job);
+  const desktopGridCols =
+    statusFilter === "retired"
+      ? "grid-cols-[80px_minmax(140px,1fr)_96px_minmax(190px,230px)_120px_110px_150px_112px]"
+      : "grid-cols-[80px_minmax(140px,1fr)_96px_minmax(190px,230px)_120px_110px_112px]";
+  const desktopMinWidth = statusFilter === "retired" ? "min-w-[1130px]" : "min-w-[980px]";
 
   return (
     <div id="worker-tab-container" className="space-y-4">
@@ -344,6 +372,16 @@ export const WorkerTab: React.FC = () => {
             <option value="hourly">시급제 (Hourly Pay)</option>
             <option value="daily">일용직 (Daily Unit Wage)</option>
             <option value="business">사업소득 3.3%</option>
+          </select>
+
+          <select
+            value={statusFilter}
+            onChange={(e) => setStatusFilter(e.target.value as "active" | "retired" | "all")}
+            className="px-3 py-1.5 border border-slate-250 bg-white rounded text-xs text-slate-850 font-semibold focus:outline-none focus:border-blue-500 cursor-pointer"
+          >
+            <option value="active">재직자 {activeCount}명</option>
+            <option value="retired">퇴사자 {retiredCount}명</option>
+            <option value="all">전체 {workers.length}명</option>
           </select>
         </div>
 
@@ -378,6 +416,11 @@ export const WorkerTab: React.FC = () => {
                     {w.englishName && (
                       <span className="text-[11px] text-slate-400">({w.englishName})</span>
                     )}
+                    {isRetired(w) && (
+                      <span className="inline-flex items-center gap-0.5 text-[9px] text-slate-600 font-bold">
+                        <UserX className="w-2.5 h-2.5" />퇴사
+                      </span>
+                    )}
                     {(w.deductionSettings.housingFee > 0 || w.deductionSettings.cashAdvance > 0) && (
                       <span className="inline-flex items-center gap-0.5 text-[9px] text-rose-600 font-bold">
                         <ShieldAlert className="w-2.5 h-2.5" />공제
@@ -401,6 +444,12 @@ export const WorkerTab: React.FC = () => {
                   <dt className="text-slate-400 shrink-0">연락처</dt>
                   <dd className="font-mono text-slate-700">{w.phone}</dd>
                 </div>
+                {isRetired(w) && (
+                  <div className="flex justify-between gap-3">
+                    <dt className="text-slate-400 shrink-0">입사/퇴사</dt>
+                    <dd className="font-mono text-slate-700">{w.joinDate || "—"} / {w.retireDate || "—"}</dd>
+                  </div>
+                )}
                 <div className="flex justify-between gap-3">
                   <dt className="text-slate-400 shrink-0">급여 단가</dt>
                   <dd className="font-mono text-[11px]">
@@ -419,10 +468,11 @@ export const WorkerTab: React.FC = () => {
                   <Edit2 className="w-3 h-3" />수정
                 </button>
                 <button
-                  onClick={() => handleDelete(w.id || w.workerId, w.workerId)}
-                  className="flex-1 flex items-center justify-center gap-1 text-xs px-2 py-2 font-bold text-rose-600 border border-rose-100 rounded bg-rose-50/20 hover:bg-rose-50 transition cursor-pointer"
+                  onClick={() => handleRetire(w)}
+                  disabled={isRetired(w)}
+                  className="flex-1 flex items-center justify-center gap-1 text-xs px-2 py-2 font-bold text-slate-700 border border-slate-200 rounded bg-slate-50/50 hover:bg-slate-100 transition cursor-pointer disabled:opacity-45 disabled:cursor-not-allowed"
                 >
-                  <Trash2 className="w-3 h-3" />제외
+                  <UserX className="w-3 h-3" />퇴사 처리
                 </button>
               </div>
             </div>
@@ -432,19 +482,20 @@ export const WorkerTab: React.FC = () => {
         {/* 데스크톱 표 (sm 이상) */}
         <div className="hidden sm:block bg-white rounded-lg border border-slate-200 overflow-x-auto">
           {/* Table header */}
-          <div className="grid min-w-[980px] grid-cols-[80px_minmax(140px,1fr)_96px_minmax(190px,230px)_120px_110px_112px] gap-x-3 px-4 py-2 bg-slate-50 border-b border-slate-200 text-[10px] font-bold text-slate-400 uppercase tracking-wider">
+          <div className={`grid ${desktopMinWidth} ${desktopGridCols} gap-x-3 px-4 py-2 bg-slate-50 border-b border-slate-200 text-[10px] font-bold text-slate-400 uppercase tracking-wider`}>
             <span>사번</span>
             <span>이름</span>
             <span>고용형태</span>
             <span>부서 / 직급 / 직무</span>
             <span>연락처</span>
             <span>급여 단가</span>
+            {statusFilter === "retired" && <span>입사 / 퇴사</span>}
             <span></span>
           </div>
           {filteredWorkers.map((w, idx) => (
             <div
               key={w.id || w.workerId}
-              className={`grid min-w-[980px] grid-cols-[80px_minmax(140px,1fr)_96px_minmax(190px,230px)_120px_110px_112px] gap-x-3 px-4 py-3 items-center text-xs transition hover:bg-slate-50 ${idx !== 0 ? "border-t border-slate-100" : ""}`}
+              className={`grid ${desktopMinWidth} ${desktopGridCols} gap-x-3 px-4 py-3 items-center text-xs transition hover:bg-slate-50 ${idx !== 0 ? "border-t border-slate-100" : ""}`}
             >
               {/* 사번 */}
               <span className="font-mono text-[10px] text-slate-500 font-bold truncate">{w.workerId}</span>
@@ -454,6 +505,11 @@ export const WorkerTab: React.FC = () => {
                 <span className="font-semibold text-slate-900">{w.name}</span>
                 {w.englishName && (
                   <span className="text-[11px] text-slate-400 ml-1">({w.englishName})</span>
+                )}
+                {isRetired(w) && (
+                  <span className="ml-1 inline-flex items-center gap-0.5 text-[9px] text-slate-600 font-bold">
+                    <UserX className="w-2.5 h-2.5" />퇴사 {w.retireDate}
+                  </span>
                 )}
                 {(w.deductionSettings.housingFee > 0 || w.deductionSettings.cashAdvance > 0) && (
                   <span className="ml-1 inline-flex items-center gap-0.5 text-[9px] text-rose-600 font-bold">
@@ -483,6 +539,13 @@ export const WorkerTab: React.FC = () => {
                 {(w.employmentType === "daily" || w.employmentType === "business") && <span className="text-orange-600 font-bold">₩{w.salarySettings.dailyRate.toLocaleString()}<span className="text-slate-400 font-normal">/D</span></span>}
               </div>
 
+              {statusFilter === "retired" && (
+                <div className="font-mono text-[11px] text-slate-700 leading-tight">
+                  <div>입사 {w.joinDate || "—"}</div>
+                  <div className="text-slate-500">퇴사 {w.retireDate || "—"}</div>
+                </div>
+              )}
+
               {/* 액션 버튼 */}
               <div className="flex gap-1.5 justify-end">
                 <button
@@ -492,10 +555,11 @@ export const WorkerTab: React.FC = () => {
                   <Edit2 className="w-3 h-3" />수정
                 </button>
                 <button
-                  onClick={() => handleDelete(w.id || w.workerId, w.workerId)}
-                  className="flex items-center gap-1 text-[11px] px-2 py-1 font-bold text-rose-600 border border-rose-100 rounded bg-rose-50/20 hover:bg-rose-50 transition cursor-pointer whitespace-nowrap"
+                  onClick={() => handleRetire(w)}
+                  disabled={isRetired(w)}
+                  className="flex items-center gap-1 text-[11px] px-2 py-1 font-bold text-slate-700 border border-slate-200 rounded bg-slate-50/50 hover:bg-slate-100 transition cursor-pointer whitespace-nowrap disabled:opacity-45 disabled:cursor-not-allowed"
                 >
-                  <Trash2 className="w-3 h-3" />제외
+                  <UserX className="w-3 h-3" />퇴사
                 </button>
               </div>
             </div>
@@ -885,6 +949,18 @@ export const WorkerTab: React.FC = () => {
                   <p className="text-xs font-medium text-gray-500 mb-2">
                     비소득성 복리후생 보조 수당 (공유 설정 상속을 원하지 않을 시 개별 입력. 비워두면 회사 기본 설정 적용)
                   </p>
+                  <p className="text-[11px] text-emerald-700 bg-emerald-50 border border-emerald-100 rounded-lg px-3 py-2 mb-3">
+                    월급제는 이 항목들을 월급 안에서 비과세로 분리해 과세표준을 낮춥니다(세금 절약). 자가운전보조금은 <b>자가 차량 보유자</b>만 분리됩니다.
+                  </p>
+                  <label className="flex items-center gap-2 mb-3 text-xs font-semibold text-gray-700 cursor-pointer">
+                    <input
+                      type="checkbox"
+                      checked={hasVehicle}
+                      onChange={(e) => setHasVehicle(e.target.checked)}
+                      className="w-4 h-4 rounded border-gray-300"
+                    />
+                    자가 차량 보유 (자가운전보조금 비과세 분리 대상)
+                  </label>
                   <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
                     <div>
                       <label className="block text-xs text-gray-500 mb-1">식대 (Meal Allowance)</label>
@@ -897,13 +973,17 @@ export const WorkerTab: React.FC = () => {
                       />
                     </div>
                     <div>
-                      <label className="block text-xs text-gray-500 mb-1">자가운전보조금 (Transport)</label>
+                      <label className="block text-xs text-gray-500 mb-1">
+                        자가운전보조금 (Transport)
+                        {!hasVehicle && <span className="text-rose-500 ml-1">· 자가 미보유 (비과세 제외)</span>}
+                      </label>
                       <input
                         type="number"
-                        placeholder="회사 기본값 상속"
+                        placeholder={hasVehicle ? "회사 기본값 상속" : "자가 보유 시 적용"}
                         value={transportOverride}
                         onChange={(e) => setTransportOverride(e.target.value)}
-                        className="w-full px-3 py-1.5 border border-gray-200 rounded-lg text-sm font-mono"
+                        disabled={!hasVehicle}
+                        className={`w-full px-3 py-1.5 border border-gray-200 rounded-lg text-sm font-mono ${!hasVehicle ? "bg-gray-100 text-gray-400 cursor-not-allowed" : ""}`}
                       />
                     </div>
                     <div>
@@ -1094,10 +1174,11 @@ export const WorkerTab: React.FC = () => {
                 <button
                   type="button"
                   onClick={handleResetPassword}
-                  className="flex items-center gap-1.5 px-3 py-2 border border-amber-300 bg-amber-50 text-amber-800 rounded-lg text-xs font-bold hover:bg-amber-100"
+                  disabled={isRetired(editingWorker)}
+                  className="flex items-center gap-1.5 px-3 py-2 border border-amber-300 bg-amber-50 text-amber-800 rounded-lg text-xs font-bold hover:bg-amber-100 disabled:opacity-45 disabled:cursor-not-allowed"
                 >
                   <KeyRound className="w-3.5 h-3.5" />
-                  비밀번호 재발급
+                  {isRetired(editingWorker) ? "퇴사자 로그인 차단됨" : "비밀번호 재발급"}
                 </button>
               ) : <span />}
 

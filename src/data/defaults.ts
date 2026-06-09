@@ -23,6 +23,29 @@ export const DEFAULT_SETTINGS: AllSettings = {
     nightRate: 0.5,
     nightStart: "22:00",
     nightEnd: "06:00",
+    snapRules: [
+      // ── 평일 ──
+      { id: "snap-wd-in-1", dayType: "weekday", kind: "in", fromTime: "04:00", toTime: "05:30", snapTo: "05:00" },
+      { id: "snap-wd-in-2", dayType: "weekday", kind: "in", fromTime: "06:00", toTime: "08:30", snapTo: "08:00" },
+      { id: "snap-wd-out-1", dayType: "weekday", kind: "out", fromTime: "16:30", toTime: "17:50", snapTo: "17:00" },
+      { id: "snap-wd-out-2", dayType: "weekday", kind: "out", fromTime: "19:00", toTime: "20:00", snapTo: "19:30" },
+      { id: "snap-wd-out-3", dayType: "weekday", kind: "out", fromTime: "21:00", toTime: "22:30", snapTo: "22:00" },
+      // ── 토요일 (정규 08:00~16:00, 앞뒤 1시간 버퍼) ──
+      { id: "snap-sat-in-0", dayType: "saturday", kind: "in", fromTime: "04:00", toTime: "05:30", snapTo: "05:00" },
+      { id: "snap-sat-in-1", dayType: "saturday", kind: "in", fromTime: "07:00", toTime: "08:59", snapTo: "08:00" },
+      { id: "snap-sat-out-1", dayType: "saturday", kind: "out", fromTime: "15:00", toTime: "16:59", snapTo: "16:00" },
+      { id: "snap-sat-out-2", dayType: "saturday", kind: "out", fromTime: "17:30", toTime: "18:59", snapTo: "18:00" },
+      // ── 일요일 (정규 08:00~15:30, 앞뒤 1시간 버퍼) ──
+      { id: "snap-sun-in-0", dayType: "sunday", kind: "in", fromTime: "04:00", toTime: "05:30", snapTo: "05:00" },
+      { id: "snap-sun-in-1", dayType: "sunday", kind: "in", fromTime: "07:00", toTime: "08:59", snapTo: "08:00" },
+      { id: "snap-sun-out-1", dayType: "sunday", kind: "out", fromTime: "14:30", toTime: "16:30", snapTo: "15:30" },
+      { id: "snap-sun-out-2", dayType: "sunday", kind: "out", fromTime: "17:00", toTime: "17:59", snapTo: "17:30" },
+      // ── 공휴일 (정규 08:00~16:00, 앞뒤 1시간 버퍼) ──
+      { id: "snap-hol-in-0", dayType: "holiday", kind: "in", fromTime: "04:00", toTime: "05:30", snapTo: "05:00" },
+      { id: "snap-hol-in-1", dayType: "holiday", kind: "in", fromTime: "07:00", toTime: "08:59", snapTo: "08:00" },
+      { id: "snap-hol-out-1", dayType: "holiday", kind: "out", fromTime: "15:00", toTime: "16:59", snapTo: "16:00" },
+      { id: "snap-hol-out-2", dayType: "holiday", kind: "out", fromTime: "17:30", toTime: "18:59", snapTo: "18:00" },
+    ],
   },
   dailyWorkerRules: {
     earlyMorningStart: "05:00",
@@ -146,6 +169,7 @@ export const MOCK_WORKERS: Worker[] = [
     homeContact: "",
     emergencyName: "",
     emergencyRelation: "",
+    hasVehicle: true,
     salarySettings: {
       monthlyBase: 4500000,
       hourlyRate: 15000,
@@ -193,6 +217,7 @@ export const MOCK_WORKERS: Worker[] = [
     homeContact: "",
     emergencyName: "",
     emergencyRelation: "",
+    hasVehicle: false,
     salarySettings: {
       monthlyBase: 0,
       hourlyRate: 18000,
@@ -240,6 +265,7 @@ export const MOCK_WORKERS: Worker[] = [
     homeContact: "",
     emergencyName: "",
     emergencyRelation: "",
+    hasVehicle: false,
     salarySettings: {
       monthlyBase: 0,
       hourlyRate: 0,
@@ -287,6 +313,7 @@ export const MOCK_WORKERS: Worker[] = [
     homeContact: "+1-202-555-0147",
     emergencyName: "Jane Doe",
     emergencyRelation: "배우자",
+    hasVehicle: false,
     salarySettings: {
       monthlyBase: 0,
       hourlyRate: 0,
