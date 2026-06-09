@@ -474,7 +474,7 @@ export async function exportLaborLedger(ctx: ExportContext): Promise<void> {
   dedGroupCell.alignment = { horizontal: "center" };
   dedGroupCell.fill = { type: "pattern", pattern: "solid", fgColor: { argb: "FFFEE2E2" } };
 
-  // ── 데이터 ── 근로자 1명 = 3행 (출근 / 퇴근 / 연장 or 공수)
+  // ── 데이터 ── 근로자 1명 = 6행 (출근 / 퇴근 / 연장 / 휴일 / 휴일연장 / 야간)
   const agg = aggregateMonth(ctx);
   let row = 5;
 
@@ -482,7 +482,11 @@ export async function exportLaborLedger(ctx: ExportContext): Promise<void> {
     const w = a.worker;
     const r1 = row;       // 출근
     const r2 = row + 1;   // 퇴근
-    const r3 = row + 2;   // 연장/공수
+    const r3 = row + 2;   // 연장
+    const r4 = row + 3;   // 휴일
+    const r5 = row + 4;   // 휴일연장
+    const r6 = row + 5;   // 야간
+    const rLast = r6;
 
     // 고정 정보 — 3행 병합 (A ~ L = 12개)
     const fixedValues: (string | number)[] = [
@@ -500,15 +504,15 @@ export async function exportLaborLedger(ctx: ExportContext): Promise<void> {
       w.duty || "",
     ];
     fixedValues.forEach((v, i) => {
-      ws.mergeCells(r1, i + 1, r3, i + 1);
+      ws.mergeCells(r1, i + 1, rLast, i + 1);
       setCell(ws.getCell(r1, i + 1), v, { align: i <= 1 ? "center" : "left" });
     });
 
-    // M열 (구분) — 3행 각각
+    // M열 (구분) — 6행: 출근 / 퇴근 / 연장 / 휴일 / 휴일연장 / 야간
     const isDaily = w.employmentType === "daily" || w.employmentType === "business";
-    setCell(ws.getCell(r1, 13), "출근", { bold: true });
-    setCell(ws.getCell(r2, 13), "퇴근", { bold: true });
-    setCell(ws.getCell(r3, 13), isDaily ? "공수" : "연장", { bold: true });
+    ["출근", "퇴근", "연장", "휴일", "휴일연장", "야간"].forEach((lab, i) =>
+      setCell(ws.getCell(row + i, 13), lab, { bold: true })
+    );
 
     // 일자별
     for (let d = 1; d <= dim; d++) {
@@ -517,20 +521,20 @@ export async function exportLaborLedger(ctx: ExportContext): Promise<void> {
       setCell(ws.getCell(r1, col), day.inAt ? fmtHHMM(day.inAt, tz) : "");
       setCell(ws.getCell(r2, col), day.outAt ? fmtHHMM(day.outAt, tz) : "");
 
-      if (isDaily) {
-        // 일용직/사업소득자: 공수(소수) 그대로
-        const manDays = round2(day.base + day.overtime + day.holiday + day.holidayOvertime);
-        setCell(ws.getCell(r3, col), manDays || "");
-      } else {
-        // 월급/시급: 연장+휴일+휴일연장 시간을 H:MM으로
-        const hrs = day.overtime + day.holiday + day.holidayOvertime;
-        if (hrs > 0) setCell(ws.getCell(r3, col), hrs / 24, { numFmt: HM_FMT });
-        else setCell(ws.getCell(r3, col), "");
-      }
+      // 연장/휴일/휴일연장/야간 각 행 — 일용직은 공수(소수), 월급·시급은 시간(H:MM)
+      const putTime = (rr: number, val: number) => {
+        if (isDaily) setCell(ws.getCell(rr, col), val ? round2(val) : "");
+        else if (val > 0) setCell(ws.getCell(rr, col), val / 24, { numFmt: HM_FMT });
+        else setCell(ws.getCell(rr, col), "");
+      };
+      putTime(r3, day.overtime);       // 연장
+      putTime(r4, day.holiday);        // 휴일
+      putTime(r5, day.holidayOvertime); // 휴일연장
+      putTime(r6, day.night);          // 야간
 
       const cat = dayCategoryByD.get(d) || "weekday";
       if (cat !== "weekday") {
-        [r1, r2, r3].forEach((rr) => applyDayFill(ws.getCell(rr, col), cat));
+        [r1, r2, r3, r4, r5, r6].forEach((rr) => applyDayFill(ws.getCell(rr, col), cat));
       }
     }
 
@@ -616,72 +620,54 @@ export async function exportLaborLedger(ctx: ExportContext): Promise<void> {
 
     const NUM = "#,##0";
 
-    // 일수 (3행 병합)
-    ws.mergeCells(r1, summaryStartCol + 0, r3, summaryStartCol + 0);
-    setCell(ws.getCell(r1, summaryStartCol + 0), a.workedDays, { bold: true });
+    // ── 요약: 근로자 1명 = 6행. 단일값은 전체(r1~r6) 병합, 상/하 2값은 상단 r1~r3·하단 r4~r6 병합 ──
+    const sc = summaryStartCol;
+    const fullCell = (off: number, val: any, opts: any = {}) => {
+      ws.mergeCells(r1, sc + off, rLast, sc + off);
+      setCell(ws.getCell(r1, sc + off), val, opts);
+    };
+    const topCell = (off: number, val: any, opts: any = {}) => {
+      ws.mergeCells(r1, sc + off, r3, sc + off);
+      setCell(ws.getCell(r1, sc + off), val, opts);
+    };
+    const botCell = (off: number, val: any, opts: any = {}) => {
+      ws.mergeCells(r4, sc + off, r6, sc + off);
+      setCell(ws.getCell(r4, sc + off), val, opts);
+    };
 
-    // 형태
-    ws.mergeCells(r1, summaryStartCol + 1, r3, summaryStartCol + 1);
-    setCell(ws.getCell(r1, summaryStartCol + 1), empType);
+    fullCell(0, a.workedDays, { bold: true });           // 일수
+    fullCell(1, empType);                                 // 형태
+    fullCell(2, unit, { numFmt: NUM, align: "right" });   // 단가
 
-    // 단가
-    ws.mergeCells(r1, summaryStartCol + 2, r3, summaryStartCol + 2);
-    setCell(ws.getCell(r1, summaryStartCol + 2), unit, { numFmt: NUM, align: "right" });
+    // 기본급(월급제는 과세 기본급) / 연장수당
+    topCell(3, Math.floor(isSalaryW ? basePay - cappedTaxFree : basePay), { numFmt: NUM, align: "right" });
+    botCell(3, Math.floor(overtimePay), { numFmt: NUM, align: "right" });
+    topCell(4, allowances.meal, { numFmt: NUM, align: "right" });        // 식대
+    botCell(4, Math.floor(holidayPay), { numFmt: NUM, align: "right" }); // 휴일수당
+    topCell(5, displayTransport, { numFmt: NUM, align: "right" });         // 자가운전
+    botCell(5, Math.floor(holidayOTPay), { numFmt: NUM, align: "right" }); // 휴일연장
+    topCell(6, allowances.phone, { numFmt: NUM, align: "right" });       // 통신비
+    botCell(6, Math.floor(nightPay), { numFmt: NUM, align: "right" });   // 야간수당
+    topCell(7, 0, { numFmt: NUM, align: "right" });  // 직책수당
+    botCell(7, 0, { numFmt: NUM, align: "right" });  // 기타
 
-    // 기본급 (r1) / 연장수당 (r2) — 월급제는 과세 기본급(비과세 분리분 차감)
-    setCell(ws.getCell(r1, summaryStartCol + 3), Math.floor(isSalaryW ? basePay - cappedTaxFree : basePay), { numFmt: NUM, align: "right" });
-    setCell(ws.getCell(r2, summaryStartCol + 3), Math.floor(overtimePay), { numFmt: NUM, align: "right" });
+    fullCell(8, grossSum, { numFmt: NUM, bold: true, align: "right" }); // 지급계
 
-    // 식대 (r1) / 휴일수당 (r2)
-    setCell(ws.getCell(r1, summaryStartCol + 4), allowances.meal, { numFmt: NUM, align: "right" });
-    setCell(ws.getCell(r2, summaryStartCol + 4), Math.floor(holidayPay), { numFmt: NUM, align: "right" });
+    topCell(9, nps, { numFmt: NUM, align: "right" });  // 국민연금
+    botCell(9, ei, { numFmt: NUM, align: "right" });   // 고용보험
+    topCell(10, hi, { numFmt: NUM, align: "right" });  // 건강보험
+    botCell(10, it, { numFmt: NUM, align: "right" });  // 소득세
+    topCell(11, ltc, { numFmt: NUM, align: "right" }); // 장기요양
+    botCell(11, lit, { numFmt: NUM, align: "right" }); // 지방소득세
+    topCell(12, housing, { numFmt: NUM, align: "right" }); // 숙소료
+    botCell(12, advance, { numFmt: NUM, align: "right" }); // 가불금
 
-    // 자가운전 (r1) / 휴일연장 (r2)
-    setCell(ws.getCell(r1, summaryStartCol + 5), displayTransport, { numFmt: NUM, align: "right" });
-    setCell(ws.getCell(r2, summaryStartCol + 5), Math.floor(holidayOTPay), { numFmt: NUM, align: "right" });
+    fullCell(13, customDed, { numFmt: NUM, align: "right" });          // 기타
+    fullCell(14, dedSum, { numFmt: NUM, bold: true, align: "right" }); // 공제계
+    fullCell(15, netPay, { numFmt: NUM, bold: true, align: "right" }); // 실지급액
+    fullCell(16, w.nationality && w.nationality !== "대한민국" ? w.nationality : ""); // 비고
 
-    // 통신비 (r1) / 야간수당 (r2)
-    setCell(ws.getCell(r1, summaryStartCol + 6), allowances.phone, { numFmt: NUM, align: "right" });
-    setCell(ws.getCell(r2, summaryStartCol + 6), Math.floor(nightPay), { numFmt: NUM, align: "right" });
-
-    // 직책수당 (r1) / 기타 (r2) — 미구현, 0
-    setCell(ws.getCell(r1, summaryStartCol + 7), 0, { numFmt: NUM, align: "right" });
-    setCell(ws.getCell(r2, summaryStartCol + 7), 0, { numFmt: NUM, align: "right" });
-
-    // 지급계 (3행 병합)
-    ws.mergeCells(r1, summaryStartCol + 8, r3, summaryStartCol + 8);
-    setCell(ws.getCell(r1, summaryStartCol + 8), grossSum, { numFmt: NUM, bold: true, align: "right" });
-
-    // 공제 영역
-    setCell(ws.getCell(r1, summaryStartCol + 9), nps, { numFmt: NUM, align: "right" });
-    setCell(ws.getCell(r2, summaryStartCol + 9), ei, { numFmt: NUM, align: "right" });
-
-    setCell(ws.getCell(r1, summaryStartCol + 10), hi, { numFmt: NUM, align: "right" });
-    setCell(ws.getCell(r2, summaryStartCol + 10), it, { numFmt: NUM, align: "right" });
-
-    setCell(ws.getCell(r1, summaryStartCol + 11), ltc, { numFmt: NUM, align: "right" });
-    setCell(ws.getCell(r2, summaryStartCol + 11), lit, { numFmt: NUM, align: "right" });
-
-    setCell(ws.getCell(r1, summaryStartCol + 12), housing, { numFmt: NUM, align: "right" });
-    setCell(ws.getCell(r2, summaryStartCol + 12), advance, { numFmt: NUM, align: "right" });
-
-    // 기타 (3행 병합)
-    ws.mergeCells(r1, summaryStartCol + 13, r3, summaryStartCol + 13);
-    setCell(ws.getCell(r1, summaryStartCol + 13), customDed, { numFmt: NUM, align: "right" });
-
-    // 공제계 (3행 병합)
-    ws.mergeCells(r1, summaryStartCol + 14, r3, summaryStartCol + 14);
-    setCell(ws.getCell(r1, summaryStartCol + 14), dedSum, { numFmt: NUM, bold: true, align: "right" });
-
-    // 실지급액 (3행 병합)
-    ws.mergeCells(r1, summaryStartCol + 15, r3, summaryStartCol + 15);
-    setCell(ws.getCell(r1, summaryStartCol + 15), netPay, { numFmt: NUM, bold: true, align: "right" });
-
-    // 비고 (3행 병합)
-    ws.mergeCells(r1, summaryStartCol + 16, r3, summaryStartCol + 16);
-    setCell(ws.getCell(r1, summaryStartCol + 16), w.nationality && w.nationality !== "대한민국" ? w.nationality : "");
-
-    row += 3;
+    row += 6;
   });
 
   // 컬럼 너비 조정 (고정 영역)
