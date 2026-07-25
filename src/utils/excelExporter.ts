@@ -90,6 +90,12 @@ function overlapsConfiguredWindow(
   return overlapMin(startMin, endMin, rangeStart, rangeEnd) > 0;
 }
 
+function baseManDays(netHours: number, standardHours: number): number {
+  if (netHours <= 0) return 0;
+  if (netHours <= standardHours / 2) return 0.5;
+  return 1;
+}
+
 /**
  * 하루 출퇴근 시각을 기본/연장/휴일/휴일연장/야간 시간으로 분해.
  * - 타각 보정 규칙(snapRules)으로 인정 시각을 먼저 보정한 뒤 계산 (화면 산정과 동일)
@@ -172,14 +178,14 @@ function splitDayHours(
       return {
         base: 0,
         overtime: 0,
-        holiday: settings.dailyWorkerRules.holidayRate,
+        holiday: baseManDays(netHours, std) * settings.dailyWorkerRules.holidayRate,
         holidayOvertime: extraBonus,
         night: nightHours,
       };
     }
 
     return {
-      base: 1,
+      base: baseManDays(netHours, std),
       overtime: extraBonus,
       holiday: 0,
       holidayOvertime: 0,

@@ -204,6 +204,45 @@ export const AttendanceTab: React.FC = () => {
     return values.regularHours + values.overtimeHours + values.holidayHours + values.holidayOvertimeHours;
   };
 
+  const attendanceTotals = useMemo(() => {
+    return records.reduce(
+      (totals, r) => {
+        const detail = getRecordBreakdown(r);
+        const bd = detail?.breakdown;
+        const effective = getEffectiveConfirmValues(r);
+        const isConfirmed = Boolean(r.confirmedBreakdown);
+        const calculatedWorkHours = effectiveWorkHours(r, effective);
+        const workHours = calculatedWorkHours > 0
+          ? calculatedWorkHours
+          : bd
+            ? bd.workHours
+            : r.workHours > 0
+              ? r.workHours
+              : 0;
+
+        totals.workHours += workHours;
+        totals.overtimeHours += isConfirmed ? effective.overtimeHours : bd?.overtimeHours || 0;
+        totals.nightHours += isConfirmed ? effective.nightHours : bd?.nightHours || 0;
+        totals.holidayHours += isConfirmed ? effective.holidayHours : bd?.holidayHours || 0;
+        totals.holidayOvertimeHours += isConfirmed ? effective.holidayOvertimeHours : bd?.holidayOvertimeHours || 0;
+        totals.manDays += isConfirmed
+          ? effective.manDays
+          : detail?.isManDay && bd
+            ? bd.manDays
+            : 0;
+        return totals;
+      },
+      {
+        workHours: 0,
+        overtimeHours: 0,
+        nightHours: 0,
+        holidayHours: 0,
+        holidayOvertimeHours: 0,
+        manDays: 0,
+      }
+    );
+  }, [records, workerById, holidays, settings]);
+
   const updateConfirmDraft = (recordId: string, key: keyof AttendanceBreakdownValues, value: string) => {
     const parsed = Math.max(0, Number(value) || 0);
     setConfirmDrafts((prev) => ({
@@ -846,6 +885,30 @@ export const AttendanceTab: React.FC = () => {
             );
           })
         )}
+        {!loading && records.length > 0 && (
+          <div className="rounded-lg border border-slate-300 bg-slate-900 px-3.5 py-3 text-white shadow-xs">
+            <div className="flex items-center justify-between gap-2">
+              <div>
+                <div className="text-[10px] font-bold uppercase text-slate-300">합계</div>
+                <div className="mt-0.5 text-xs font-mono text-slate-400">{records.length} 건</div>
+              </div>
+              <div className="grid grid-cols-3 gap-2 text-right">
+                <div>
+                  <div className="text-[9px] font-bold uppercase text-slate-400">근무</div>
+                  <div className="mt-0.5 font-mono text-xs font-bold">{fmtShortHours(attendanceTotals.workHours)}</div>
+                </div>
+                <div>
+                  <div className="text-[9px] font-bold uppercase text-slate-400">연장</div>
+                  <div className="mt-0.5 font-mono text-xs font-bold">{fmtShortHours(attendanceTotals.overtimeHours)}</div>
+                </div>
+                <div>
+                  <div className="text-[9px] font-bold uppercase text-slate-400">공수</div>
+                  <div className="mt-0.5 font-mono text-xs font-bold">{attendanceTotals.manDays.toFixed(2)}</div>
+                </div>
+              </div>
+            </div>
+          </div>
+        )}
         <div className="px-1 pt-0.5 text-[10px] text-slate-500 font-mono flex items-center gap-2">
           <TrendingUp className="w-3 h-3" />
           {fromDate} ~ {toDate} · 총 {records.length} 건
@@ -1000,6 +1063,34 @@ export const AttendanceTab: React.FC = () => {
                 })
               )}
             </tbody>
+            {!loading && records.length > 0 && (
+              <tfoot className="bg-slate-900 text-white">
+                <tr>
+                  <td colSpan={4} className="border-l border-slate-700 first:border-l-0 px-3 py-2.5 font-bold">
+                    합계 <span className="ml-2 font-mono text-[10px] text-slate-400">{records.length} 건</span>
+                  </td>
+                  <td className="border-l border-slate-700 px-3 py-2.5 text-center font-mono font-bold tabular-nums">
+                    {fmtShortHours(attendanceTotals.workHours)}
+                  </td>
+                  <td className="border-l border-slate-700 px-3 py-2.5 text-center font-mono font-bold tabular-nums">
+                    {fmtShortHours(attendanceTotals.overtimeHours)}
+                  </td>
+                  <td className="border-l border-slate-700 px-3 py-2.5 text-center font-mono font-bold tabular-nums">
+                    {fmtShortHours(attendanceTotals.nightHours)}
+                  </td>
+                  <td className="border-l border-slate-700 px-3 py-2.5 text-center font-mono font-bold tabular-nums">
+                    {fmtShortHours(attendanceTotals.holidayHours)}
+                  </td>
+                  <td className="border-l border-slate-700 px-3 py-2.5 text-center font-mono font-bold tabular-nums">
+                    {fmtShortHours(attendanceTotals.holidayOvertimeHours)}
+                  </td>
+                  <td className="border-l border-slate-700 px-3 py-2.5 text-center font-mono font-bold tabular-nums">
+                    {attendanceTotals.manDays.toFixed(2)}
+                  </td>
+                  <td colSpan={role === "admin" ? 3 : 2} className="border-l border-slate-700 px-3 py-2.5" />
+                </tr>
+              </tfoot>
+            )}
           </table>
         </div>
         <div className="px-4 py-2.5 bg-slate-50 border-t border-slate-200 text-[10px] text-slate-500 font-mono flex items-center gap-2">

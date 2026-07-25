@@ -19,6 +19,12 @@ function overlapMinutes(start: number, end: number, windowStart: number, windowE
   return Math.max(0, Math.min(end, windowEnd) - Math.max(start, windowStart));
 }
 
+function getBaseManDays(netHours: number, standardHours: number): number {
+  if (netHours <= 0) return 0;
+  if (netHours <= standardHours / 2) return 0.5;
+  return 1;
+}
+
 /**
  * 근무일의 요일 유형을 4분류로 판정한다.
  * 공휴일 등록일이면 'holiday'가 일/토요일보다 우선한다.
@@ -187,7 +193,8 @@ export function calculateDailyBreakdown(
 
   // ── 일용/사업소득자: 공수(man-day) 분해 ──
   if (employmentType === "daily" || employmentType === "business") {
-    let manDays = 1.0; // 출퇴근 기록이 있으면 기본 1.0공수
+    const standardHours = workTime.standardDailyHours || 8;
+    let manDays = getBaseManDays(netHours, standardHours);
 
     const inWindow = (startHHMM: string, endHHMM: string): boolean => {
       const ws = hhmmToMinutes(startHHMM);
