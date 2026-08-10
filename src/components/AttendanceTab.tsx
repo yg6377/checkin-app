@@ -22,7 +22,13 @@ import {
   Save,
   CheckCircle2,
 } from "lucide-react";
-import { exportLaborLedger, exportAttendanceBook, exportPayslips } from "../utils/excelExporter";
+import {
+  exportLaborLedger,
+  exportAttendanceBook,
+  exportPayslips,
+  exportAttendanceView,
+  AttendanceViewRow,
+} from "../utils/excelExporter";
 import { calculateDailyBreakdown, getDayType, isHolidayDate } from "../utils/attendanceHours";
 import { formatZonedTime, getAppTimeZone, getZonedYmd, zonedWallTimeToUtcIso } from "../utils/datetime";
 
@@ -53,14 +59,19 @@ function endOfMonth(d: Date): Date {
   return new Date(d.getFullYear(), d.getMonth() + 1, 0);
 }
 
-type Preset = "today" | "thisMonth" | "lastMonth" | "last7" | "custom";
+type Preset = "today" | "yesterday" | "thisMonth" | "lastMonth" | "last7" | "custom";
+
+// 사번(worker_id) 자연 정렬 — "9" < "10" 처럼 숫자 부분을 수치로 비교
+function compareWorkerCode(a: string, b: string): number {
+  return (a || "").localeCompare(b || "", "ko", { numeric: true, sensitivity: "base" });
+}
 
 // ============================================================
 // AttendanceTab
 // ============================================================
 export const AttendanceTab: React.FC = () => {
   const { workers, fetchAttendance, settings, holidays, role, upsertAttendanceByAdmin, deleteAttendanceByAdmin, confirmAttendanceBreakdown } = useApp();
-  const [exporting, setExporting] = useState<"" | "ledger" | "book" | "payslip">("");
+  const [exporting, setExporting] = useState<"" | "ledger" | "book" | "payslip" | "view">("");
   const [exportError, setExportError] = useState("");
 
   const tz = getAppTimeZone(settings);
@@ -106,37 +117,70 @@ export const AttendanceTab: React.FC = () => {
     return selected ? [selected, ...activeWorkers] : activeWorkers;
   }, [activeWorkers, manualWorkerId, workers]);
 
-  // preset 변경 시 날짜 자동 세팅
-  useEffect(() => {
+  // 근로자 필터 선택지도 사번 오름차순
+  const filterWorkerOptions = useMemo(
+    () => [...workers].sort((a, b) => compareWorkerCode(a.workerId, b.workerId)),
+    [workers]
+  );
+
+  // 프리셋 클릭 시 적용할 날짜 범위 계산 ("사용자 지정"은 날짜를 건드리지 않음)
+  const presetRange = (key: Exclude<Preset, "custom">): { from: string; to: string } => {
     const now = new Date();
-    if (preset === "today") {
-      setFromDate(ymd(now));
-      setToDate(ymd(now));
-    } else if (preset === "thisMonth") {
-      setFromDate(ymd(startOfMonth(now)));
-      setToDate(ymd(endOfMonth(now)));
-    } else if (preset === "lastMonth") {
+    if (key === "yesterday") {
+      const yesterday = new Date(now);
+      yesterday.setDate(now.getDate() - 1);
+      return { from: ymd(yesterday), to: ymd(yesterday) };
+    }
+    if (key === "thisMonth") {
+      return { from: ymd(startOfMonth(now)), to: ymd(endOfMonth(now)) };
+    }
+    if (key === "lastMonth") {
       const prev = new Date(now.getFullYear(), now.getMonth() - 1, 1);
-      setFromDate(ymd(startOfMonth(prev)));
-      setToDate(ymd(endOfMonth(prev)));
-    } else if (preset === "last7") {
+      return { from: ymd(startOfMonth(prev)), to: ymd(endOfMonth(prev)) };
+    }
+    if (key === "last7") {
       const from = new Date(now);
       from.setDate(now.getDate() - 6);
-      setFromDate(ymd(from));
-      setToDate(ymd(now));
+      return { from: ymd(from), to: ymd(now) };
     }
-  }, [preset]);
+    return { from: ymd(now), to: ymd(now) }; // today
+  };
 
-  const runQuery = async () => {
+  // 프리셋 버튼: 날짜를 세팅하고 즉시 조회까지 실행 (사용자 지정은 조회 버튼을 눌러야 반영)
+  const handlePresetClick = (key: Preset) => {
+    setPreset(key);
+    if (key === "custom") return;
+    const { from, to } = presetRange(key);
+    setFromDate(from);
+    setToDate(to);
+    void runQuery({ fromDate: from, toDate: to });
+  };
+
+  // 화면 표시 정렬: 사번 오름차순 → 같은 사번 안에서는 날짜 오름차순
+  const sortRecords = (list: AttendanceRecord[]): AttendanceRecord[] =>
+    [...list].sort((a, b) => {
+      const byCode = compareWorkerCode(a.workerCode, b.workerCode);
+      if (byCode !== 0) return byCode;
+      const byDate = a.workDate.localeCompare(b.workDate);
+      if (byDate !== 0) return byDate;
+      return (a.checkInAt || "").localeCompare(b.checkInAt || "");
+    });
+
+  // override: 프리셋 클릭처럼 state 반영 전에 조회해야 할 때 사용
+  const runQuery = async (override?: { fromDate?: string; toDate?: string; workerId?: string }) => {
+    const qFrom = override?.fromDate ?? fromDate;
+    const qTo = override?.toDate ?? toDate;
+    const qWorkerId = override?.workerId ?? workerId;
+
     setLoading(true);
     setError("");
     try {
       const result = await fetchAttendance({
-        fromDate,
-        toDate,
-        workerId: workerId === "all" ? undefined : workerId,
+        fromDate: qFrom,
+        toDate: qTo,
+        workerId: qWorkerId === "all" ? undefined : qWorkerId,
       });
-      setRecords(result);
+      setRecords(sortRecords(result));
     } catch (e: any) {
       setError(e?.message || "조회 중 오류가 발생했습니다.");
       setRecords([]);
@@ -557,6 +601,67 @@ export const AttendanceTab: React.FC = () => {
     }
   };
 
+  // 현재 화면(조회 조건 + 정렬)에 보이는 목록을 그대로 엑셀로 저장
+  const exportCurrentView = async () => {
+    if (records.length === 0) {
+      setExportError("조회 결과가 없습니다. 먼저 조회해주세요.");
+      return;
+    }
+    setExporting("view");
+    setExportError("");
+    try {
+      const selectedWorker = workerId === "all" ? null : workers.find((w) => w.id === workerId);
+      const rows: AttendanceViewRow[] = records.map((r) => {
+        const detail = getRecordBreakdown(r);
+        const bd = detail?.breakdown;
+        const effective = getEffectiveConfirmValues(r);
+        const isConfirmed = Boolean(r.confirmedBreakdown);
+        const calculated = effectiveWorkHours(r, effective);
+        const workHours = calculated > 0 ? calculated : bd ? bd.workHours : r.workHours > 0 ? r.workHours : 0;
+        const manDays = effective.manDays > 0
+          ? effective.manDays
+          : detail?.isManDay && bd
+            ? bd.manDays
+            : 0;
+
+        return {
+          workDate: r.workDate,
+          workerCode: r.workerCode,
+          workerName: r.workerName,
+          checkIn: formatZonedTime(r.checkInAt, tz, ""),
+          checkOut: formatZonedTime(r.checkOutAt, tz, ""),
+          workHours,
+          overtimeHours: isConfirmed ? effective.overtimeHours : bd?.overtimeHours || 0,
+          nightHours: isConfirmed ? effective.nightHours : bd?.nightHours || 0,
+          holidayHours: isConfirmed ? effective.holidayHours : bd?.holidayHours || 0,
+          holidayOvertimeHours: isConfirmed ? effective.holidayOvertimeHours : bd?.holidayOvertimeHours || 0,
+          manDays,
+          status: isMissingCheckout(r)
+            ? "퇴근 누락"
+            : r.checkInAt && r.checkOutAt
+              ? "정상"
+              : r.status === "absent"
+                ? "결근"
+                : "근무 중",
+          confirmed: isConfirmed,
+        };
+      });
+
+      await exportAttendanceView({
+        fromDate,
+        toDate,
+        workerLabel: selectedWorker ? `[${selectedWorker.workerId}] ${selectedWorker.name}` : "전체 근로자",
+        companyName: settings?.site.companyName,
+        rows,
+      });
+    } catch (e: any) {
+      console.error(e);
+      setExportError(e?.message || "엑셀 생성 중 오류가 발생했습니다.");
+    } finally {
+      setExporting("");
+    }
+  };
+
   const openPayslipPicker = () => {
     setPayslipSelected(new Set(workers.map((w) => w.id!).filter(Boolean)));
     setExportError("");
@@ -595,6 +700,7 @@ export const AttendanceTab: React.FC = () => {
         <div className="flex flex-wrap gap-1.5">
           {([
             ["today", "오늘"],
+            ["yesterday", "어제"],
             ["thisMonth", "이번 달"],
             ["lastMonth", "지난 달"],
             ["last7", "최근 7일"],
@@ -602,7 +708,7 @@ export const AttendanceTab: React.FC = () => {
           ] as [Preset, string][]).map(([key, label]) => (
             <button
               key={key}
-              onClick={() => setPreset(key)}
+              onClick={() => handlePresetClick(key)}
               className={`px-3 py-1.5 text-xs font-semibold rounded border ${
                 preset === key
                   ? "bg-slate-900 text-white border-slate-900"
@@ -653,7 +759,7 @@ export const AttendanceTab: React.FC = () => {
               className="w-full px-2.5 py-1.5 border border-slate-200 rounded text-xs bg-white cursor-pointer"
             >
               <option value="all">전체 근로자</option>
-              {workers.map((w) => (
+              {filterWorkerOptions.map((w) => (
                 <option key={w.id} value={w.id}>
                   [{w.workerId}] {w.name}
                 </option>
@@ -661,7 +767,7 @@ export const AttendanceTab: React.FC = () => {
             </select>
           </div>
           <button
-            onClick={runQuery}
+            onClick={() => void runQuery()}
             disabled={loading}
             className="px-4 py-2 bg-blue-600 text-white text-xs font-bold rounded hover:bg-blue-700 disabled:opacity-50 flex items-center justify-center gap-1.5"
           >
@@ -691,6 +797,19 @@ export const AttendanceTab: React.FC = () => {
                 관리자 수동 출퇴근 입력
               </button>
             )}
+            <button
+              onClick={() => void exportCurrentView()}
+              disabled={exporting !== "" || loading || records.length === 0}
+              title="현재 조회 조건으로 화면에 표시된 목록을 그대로 저장합니다"
+              className="px-3 py-1.5 text-xs font-semibold rounded border border-indigo-200 bg-indigo-50 text-indigo-800 hover:bg-indigo-100 disabled:opacity-50 flex items-center gap-1.5"
+            >
+              {exporting === "view" ? (
+                <Loader2 className="w-3.5 h-3.5 animate-spin" />
+              ) : (
+                <Download className="w-3.5 h-3.5" />
+              )}
+              조회결과 저장
+            </button>
             <button
               onClick={() => runExport("ledger")}
               disabled={exporting !== "" || !settings}

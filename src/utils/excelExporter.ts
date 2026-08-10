@@ -1276,5 +1276,154 @@ export async function exportAttendanceBook(ctx: ExportContext): Promise<void> {
   );
 }
 
+// ============================================================
+// 4) 근태 조회 결과 (화면 그대로 내보내기)
+//    - AttendanceTab의 조회 조건(기간 + 전체/개인 필터)과 정렬을 그대로 반영
+// ============================================================
+
+export interface AttendanceViewRow {
+  workDate: string;
+  workerCode: string;
+  workerName: string;
+  checkIn: string;   // "HH:MM" (없으면 "")
+  checkOut: string;  // "HH:MM" (없으면 "")
+  workHours: number;
+  overtimeHours: number;
+  nightHours: number;
+  holidayHours: number;
+  holidayOvertimeHours: number;
+  manDays: number;
+  status: string;    // 정상 / 퇴근 누락 / 근무 중 / 결근
+  confirmed: boolean;
+}
+
+export interface AttendanceViewExportContext {
+  fromDate: string;
+  toDate: string;
+  workerLabel: string; // "전체 근로자" 또는 "[사번] 이름"
+  companyName?: string;
+  rows: AttendanceViewRow[];
+}
+
+export async function exportAttendanceView(ctx: AttendanceViewExportContext): Promise<void> {
+  const wb = new ExcelJS.Workbook();
+  wb.creator = "출퇴근 관리 앱";
+  const ws = wb.addWorksheet("근태조회", {
+    views: [{ state: "frozen", ySplit: 4 }],
+    pageSetup: { orientation: "landscape", fitToPage: true, fitToWidth: 1, fitToHeight: 0 },
+  });
+
+  const HEADERS = [
+    "날짜",
+    "사번",
+    "이름",
+    "출근",
+    "퇴근",
+    "근무(h)",
+    "연장(h)",
+    "야간(h)",
+    "휴일(h)",
+    "휴일연장(h)",
+    "공수",
+    "상태",
+    "정산확정",
+  ];
+  const lastCol = HEADERS.length;
+
+  // 제목
+  ws.mergeCells(1, 1, 1, lastCol);
+  const title = ws.getCell(1, 1);
+  title.value = `${ctx.companyName ? ctx.companyName + " " : ""}근태 조회 결과`;
+  title.font = { bold: true, size: 14 };
+  title.alignment = { horizontal: "center", vertical: "middle" };
+  ws.getRow(1).height = 24;
+
+  // 조회 조건
+  ws.mergeCells(2, 1, 2, lastCol);
+  const cond = ws.getCell(2, 1);
+  cond.value = `조회기간: ${ctx.fromDate} ~ ${ctx.toDate}   |   대상: ${ctx.workerLabel}   |   총 ${ctx.rows.length}건`;
+  cond.font = { size: 10 };
+  cond.alignment = { horizontal: "center", vertical: "middle" };
+
+  // 헤더 (4행)
+  const headerRow = 4;
+  HEADERS.forEach((h, i) => {
+    const cell = ws.getCell(headerRow, i + 1);
+    cell.value = h;
+    setHeader(cell);
+  });
+
+  const numFmt = "0.0";
+  let r = headerRow + 1;
+  ctx.rows.forEach((row) => {
+    setCell(ws.getCell(r, 1), row.workDate);
+    setCell(ws.getCell(r, 2), row.workerCode);
+    setCell(ws.getCell(r, 3), row.workerName, { align: "left" });
+    setCell(ws.getCell(r, 4), row.checkIn || "-");
+    setCell(ws.getCell(r, 5), row.checkOut || "-");
+    setCell(ws.getCell(r, 6), round2(row.workHours), { numFmt, bold: true });
+    setCell(ws.getCell(r, 7), round2(row.overtimeHours), { numFmt });
+    setCell(ws.getCell(r, 8), round2(row.nightHours), { numFmt });
+    setCell(ws.getCell(r, 9), round2(row.holidayHours), { numFmt });
+    setCell(ws.getCell(r, 10), round2(row.holidayOvertimeHours), { numFmt });
+    setCell(ws.getCell(r, 11), round2(row.manDays), { numFmt: "0.00" });
+    setCell(ws.getCell(r, 12), row.status);
+    setCell(ws.getCell(r, 13), row.confirmed ? "확정" : "-");
+    r++;
+  });
+
+  // 합계
+  const totals = ctx.rows.reduce(
+    (t, row) => {
+      t.workHours += row.workHours;
+      t.overtimeHours += row.overtimeHours;
+      t.nightHours += row.nightHours;
+      t.holidayHours += row.holidayHours;
+      t.holidayOvertimeHours += row.holidayOvertimeHours;
+      t.manDays += row.manDays;
+      return t;
+    },
+    {
+      workHours: 0,
+      overtimeHours: 0,
+      nightHours: 0,
+      holidayHours: 0,
+      holidayOvertimeHours: 0,
+      manDays: 0,
+    }
+  );
+
+  ws.mergeCells(r, 1, r, 5);
+  setCell(ws.getCell(r, 1), `합계 (${ctx.rows.length}건)`, { bold: true });
+  setCell(ws.getCell(r, 6), round2(totals.workHours), { numFmt, bold: true });
+  setCell(ws.getCell(r, 7), round2(totals.overtimeHours), { numFmt, bold: true });
+  setCell(ws.getCell(r, 8), round2(totals.nightHours), { numFmt, bold: true });
+  setCell(ws.getCell(r, 9), round2(totals.holidayHours), { numFmt, bold: true });
+  setCell(ws.getCell(r, 10), round2(totals.holidayOvertimeHours), { numFmt, bold: true });
+  setCell(ws.getCell(r, 11), round2(totals.manDays), { numFmt: "0.00", bold: true });
+  setCell(ws.getCell(r, 12), "");
+  setCell(ws.getCell(r, 13), "");
+  for (let c = 1; c <= lastCol; c++) {
+    ws.getCell(r, c).fill = { type: "pattern", pattern: "solid", fgColor: { argb: "FFE2E8F0" } };
+  }
+
+  const widths = [12, 12, 14, 9, 9, 9, 9, 9, 9, 11, 8, 11, 10];
+  widths.forEach((w, i) => (ws.getColumn(i + 1).width = w));
+
+  // 자동 필터 (헤더 ~ 마지막 데이터 행)
+  if (ctx.rows.length > 0) {
+    ws.autoFilter = {
+      from: { row: headerRow, column: 1 },
+      to: { row: headerRow + ctx.rows.length, column: lastCol },
+    };
+  }
+
+  const buf = await wb.xlsx.writeBuffer();
+  saveAs(
+    new Blob([buf], { type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" }),
+    `근태조회_${ctx.fromDate}_${ctx.toDate}.xlsx`
+  );
+}
+
 // 사용되지 않는 헬퍼 정리 (린트 통과용)
 function ws_mergeHeader(_ws: ExcelJS.Worksheet, _r1: number, _c1: number, _c2: number, _label: string) { /* noop */ }

@@ -1,7 +1,7 @@
 import React, { useState } from "react";
 import { useApp as useFirebase, WorkerCredentials } from "../context/SupabaseContext";
 import { Worker } from "../types";
-import { DEFAULT_DEPARTMENT_OPTIONS, DEFAULT_JOB_OPTIONS, DEFAULT_RANK_OPTIONS, withCurrentOption } from "../constants/workerOptions";
+import { BANK_OPTIONS, DEFAULT_DEPARTMENT_OPTIONS, DEFAULT_JOB_OPTIONS, DEFAULT_RANK_OPTIONS, withCurrentOption } from "../constants/workerOptions";
 import { Search, UserPlus, UserCheck, ShieldAlert, CreditCard, Building, Phone, Edit2, X, AlertCircle, KeyRound, Copy, Check, Globe, UserX } from "lucide-react";
 
 export const WorkerTab: React.FC = () => {
@@ -60,7 +60,7 @@ export const WorkerTab: React.FC = () => {
   const [newDeductionAmount, setNewDeductionAmount] = useState("");
 
   // Banking
-  const [bankName, setBankName] = useState("신한은행");
+  const [bankName, setBankName] = useState("");
   const [accountNo, setAccountNo] = useState("");
   const [holder, setHolder] = useState("");
 
@@ -116,7 +116,7 @@ export const WorkerTab: React.FC = () => {
     setNewDeductionName("");
     setNewDeductionAmount("");
 
-    setBankName("신한은행");
+    setBankName("");
     setAccountNo("");
     setHolder("");
 
@@ -244,7 +244,7 @@ export const WorkerTab: React.FC = () => {
         customDeductions,
       },
       bankSettings: {
-        bankName,
+        bankName: bankName.trim(),
         accountNo,
         holder: holder || name, // defaults to worker's name
       },
@@ -1087,20 +1087,22 @@ export const WorkerTab: React.FC = () => {
                 <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
                   <div>
                     <label className="block text-xs font-medium text-gray-500 mb-1">송금 은행(금융기관명)</label>
-                    <select
+                    <input
+                      type="text"
+                      list="bank-name-options"
+                      placeholder="목록에서 선택하거나 직접 입력"
                       value={bankName}
                       onChange={(e) => setBankName(e.target.value)}
-                      className="w-full px-3 py-1.5 border border-gray-200 rounded-lg text-sm bg-white"
-                    >
-                      <option value="신한은행">신한은행</option>
-                      <option value="국민은행">국민은행</option>
-                      <option value="우리은행">우리은행</option>
-                      <option value="하나은행">하나은행</option>
-                      <option value="기업은행">기업은행</option>
-                      <option value="농협은행">NH농협은행</option>
-                      <option value="토스뱅크">토스뱅크</option>
-                      <option value="카카오뱅크">카카오뱅크</option>
-                    </select>
+                      className="w-full px-3 py-1.5 border border-gray-200 rounded-lg text-sm bg-white focus:outline-none focus:ring-1 focus:ring-gray-300"
+                    />
+                    <datalist id="bank-name-options">
+                      {BANK_OPTIONS.map((b) => (
+                        <option key={b} value={b} />
+                      ))}
+                    </datalist>
+                    <p className="mt-1 text-[11px] text-gray-400">
+                      목록에 없는 금융기관은 그대로 입력하시면 됩니다.
+                    </p>
                   </div>
                   <div>
                     <label className="block text-xs font-medium text-gray-400 mb-1">계좌 번호 (실제 이체용) *</label>
