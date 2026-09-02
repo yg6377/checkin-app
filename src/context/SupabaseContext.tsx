@@ -1,7 +1,7 @@
 import React, { createContext, useContext, useEffect, useState, useCallback } from "react";
 import type { User } from "@supabase/supabase-js";
 import { supabase } from "../supabase";
-import { AllSettings, Worker, Holiday, SettingsHistory } from "../types";
+import { AllSettings, Worker, Holiday, SettingsHistory, AttendanceStatus } from "../types";
 import { calculateWorkedHours } from "../utils/attendanceHours";
 import { getAppTimeZone, getZonedYmd } from "../utils/datetime";
 import { adminIdToEmail, workerIdToEmail, roleFromEmail, AuthRole } from "../utils/auth";
@@ -188,7 +188,7 @@ export interface AttendanceRecord {
   workDate: string;        // YYYY-MM-DD
   checkInAt: string | null;
   checkOutAt: string | null;
-  status: string;
+  status: AttendanceStatus;
   workHours: number;       // 계산값 (시간 단위)
   confirmedBreakdown: AttendanceBreakdownValues | null;
   confirmedAt: string | null;
@@ -272,7 +272,7 @@ export interface AdminAttendanceInput {
   workDate: string;        // YYYY-MM-DD
   checkInAt: string | null;
   checkOutAt: string | null;
-  status?: "normal" | "late" | "early_leave" | "absent" | "holiday_work";
+  status?: AttendanceStatus;
   note?: string | null;
 }
 
@@ -689,7 +689,7 @@ export const SupabaseProvider: React.FC<{ children: React.ReactNode }> = ({ chil
         workDate: row.work_date,
         checkInAt: row.check_in_at,
         checkOutAt: row.check_out_at,
-        status: row.status,
+        status: row.status as AttendanceStatus,
         workHours: Math.max(0, workHours),
         confirmedBreakdown: segmentsToBreakdown(row.attendance_segments),
         confirmedAt: latestSegmentTimestamp(row.attendance_segments),

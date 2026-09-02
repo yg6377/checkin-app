@@ -16,6 +16,17 @@ export interface WorkTimeSettings {
 // 타각 보정(스냅) 규칙 — "이 요일에 이 구간에 찍으면 → 이 시각으로 인정"
 export type SnapDayType = "weekday" | "saturday" | "sunday" | "holiday"; // 평일/토/일/공휴일
 export type SnapKind = "in" | "out"; // 출근 / 퇴근
+export type AttendanceStatus =
+  | "normal"
+  | "late"
+  | "early_leave"
+  | "absent"
+  | "annual_leave"
+  | "half_day"
+  | "outing"
+  | "sick_leave"
+  | "leave_of_absence"
+  | "holiday_work";
 
 export interface AttendanceSnapRule {
   id: string; // react key & 삭제 식별용 (crypto.randomUUID())

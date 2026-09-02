@@ -1,5 +1,6 @@
-import React, { useEffect, useMemo, useState } from "react";
+import React, { useEffect, useMemo, useRef, useState } from "react";
 import { useApp, AttendanceRecord, AttendanceBreakdownValues } from "../context/SupabaseContext";
+import type { AttendanceStatus } from "../types";
 import {
   CalendarRange,
   Users,
@@ -61,6 +62,38 @@ function endOfMonth(d: Date): Date {
 
 type Preset = "today" | "yesterday" | "thisMonth" | "lastMonth" | "last7" | "custom";
 
+const ATTENDANCE_STATUS_OPTIONS: { value: AttendanceStatus; label: string }[] = [
+  { value: "normal", label: "정상" },
+  { value: "late", label: "지각" },
+  { value: "early_leave", label: "조퇴" },
+  { value: "absent", label: "결근" },
+  { value: "annual_leave", label: "연차" },
+  { value: "half_day", label: "반차" },
+  { value: "outing", label: "외출" },
+  { value: "sick_leave", label: "병가" },
+  { value: "leave_of_absence", label: "휴직" },
+  { value: "holiday_work", label: "휴일근무" },
+];
+
+const NON_WORK_STATUS = new Set<AttendanceStatus>([
+  "absent",
+  "annual_leave",
+  "half_day",
+  "sick_leave",
+  "leave_of_absence",
+]);
+
+function attendanceStatusLabel(status: string): string {
+  return ATTENDANCE_STATUS_OPTIONS.find((option) => option.value === status)?.label || "근무 중";
+}
+
+function displayStatusLabel(record: AttendanceRecord, missingCheckout: boolean): string {
+  if (missingCheckout) return "퇴근 누락";
+  if (record.status !== "normal") return attendanceStatusLabel(record.status);
+  if (record.checkInAt && record.checkOutAt) return "정상";
+  return "근무 중";
+}
+
 // 사번(worker_id) 자연 정렬 — "9" < "10" 처럼 숫자 부분을 수치로 비교
 function compareWorkerCode(a: string, b: string): number {
   return (a || "").localeCompare(b || "", "ko", { numeric: true, sensitivity: "base" });
@@ -81,10 +114,12 @@ export const AttendanceTab: React.FC = () => {
   const [fromDate, setFromDate] = useState<string>(todayYmd);
   const [toDate, setToDate] = useState<string>(todayYmd);
   const [workerId, setWorkerId] = useState<string>("all");
+  const [excludeRetired, setExcludeRetired] = useState(true);
 
   const [records, setRecords] = useState<AttendanceRecord[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
+  const querySeq = useRef(0);
   const [expandedId, setExpandedId] = useState<string | null>(null);
   const [confirmDrafts, setConfirmDrafts] = useState<Record<string, AttendanceBreakdownValues>>({});
   const [confirmSavingId, setConfirmSavingId] = useState<string | null>(null);
@@ -105,6 +140,7 @@ export const AttendanceTab: React.FC = () => {
   const [manualWorkDate, setManualWorkDate] = useState(todayYmd);
   const [manualCheckIn, setManualCheckIn] = useState("");
   const [manualCheckOut, setManualCheckOut] = useState("");
+  const [manualStatus, setManualStatus] = useState<AttendanceStatus>("normal");
   const [manualNote, setManualNote] = useState("관리자 수동 입력");
 
   // 급여명세서 발급 대상 선택 모달
@@ -119,8 +155,8 @@ export const AttendanceTab: React.FC = () => {
 
   // 근로자 필터 선택지도 사번 오름차순
   const filterWorkerOptions = useMemo(
-    () => [...workers].sort((a, b) => compareWorkerCode(a.workerId, b.workerId)),
-    [workers]
+    () => [...(excludeRetired ? activeWorkers : workers)].sort((a, b) => compareWorkerCode(a.workerId, b.workerId)),
+    [activeWorkers, excludeRetired, workers]
   );
 
   // 프리셋 클릭 시 적용할 날짜 범위 계산 ("사용자 지정"은 날짜를 건드리지 않음)
@@ -146,14 +182,13 @@ export const AttendanceTab: React.FC = () => {
     return { from: ymd(now), to: ymd(now) }; // today
   };
 
-  // 프리셋 버튼: 날짜를 세팅하고 즉시 조회까지 실행 (사용자 지정은 조회 버튼을 눌러야 반영)
+  // 프리셋 버튼: 날짜 상태만 세팅하고 자동 조회 effect에서 반영
   const handlePresetClick = (key: Preset) => {
     setPreset(key);
     if (key === "custom") return;
     const { from, to } = presetRange(key);
     setFromDate(from);
     setToDate(to);
-    void runQuery({ fromDate: from, toDate: to });
   };
 
   // 화면 표시 정렬: 사번 오름차순 → 같은 사번 안에서는 날짜 오름차순
@@ -166,11 +201,12 @@ export const AttendanceTab: React.FC = () => {
       return (a.checkInAt || "").localeCompare(b.checkInAt || "");
     });
 
-  // override: 프리셋 클릭처럼 state 반영 전에 조회해야 할 때 사용
-  const runQuery = async (override?: { fromDate?: string; toDate?: string; workerId?: string }) => {
+  const runQuery = async (override?: { fromDate?: string; toDate?: string; workerId?: string; excludeRetired?: boolean }) => {
     const qFrom = override?.fromDate ?? fromDate;
     const qTo = override?.toDate ?? toDate;
     const qWorkerId = override?.workerId ?? workerId;
+    const qExcludeRetired = override?.excludeRetired ?? excludeRetired;
+    const seq = ++querySeq.current;
 
     setLoading(true);
     setError("");
@@ -180,20 +216,31 @@ export const AttendanceTab: React.FC = () => {
         toDate: qTo,
         workerId: qWorkerId === "all" ? undefined : qWorkerId,
       });
-      setRecords(sortRecords(result));
+      const visibleResult = qExcludeRetired
+        ? result.filter((record) => !workerById.get(record.workerId)?.retireDate)
+        : result;
+      if (seq !== querySeq.current) return;
+      setRecords(sortRecords(visibleResult));
     } catch (e: any) {
+      if (seq !== querySeq.current) return;
       setError(e?.message || "조회 중 오류가 발생했습니다.");
       setRecords([]);
     } finally {
-      setLoading(false);
+      if (seq === querySeq.current) setLoading(false);
     }
   };
 
-  // 마운트 시 자동 조회
+  useEffect(() => {
+    if (!excludeRetired || workerId === "all") return;
+    const selected = workerById.get(workerId);
+    if (selected?.retireDate) setWorkerId("all");
+  }, [excludeRetired, workerById, workerId]);
+
+  // 필터 값이 바뀌면 즉시 조회
   useEffect(() => {
     runQuery();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [fromDate, toDate, workerId, excludeRetired, workers.length]);
 
   // 집계
   const summary = useMemo(() => {
@@ -483,6 +530,7 @@ export const AttendanceTab: React.FC = () => {
       setManualWorkDate(record.workDate);
       setManualCheckIn(record.checkInAt ? formatZonedTime(record.checkInAt, tz, "") : "");
       setManualCheckOut(record.checkOutAt ? formatZonedTime(record.checkOutAt, tz, "") : "");
+      setManualStatus(record.status);
       setManualNote("관리자 수동 수정");
     } else {
       const selectedWorker = workers.find((w) => w.id === workerId);
@@ -490,6 +538,7 @@ export const AttendanceTab: React.FC = () => {
       setManualWorkDate(fromDate);
       setManualCheckIn("");
       setManualCheckOut("");
+      setManualStatus("normal");
       setManualNote("관리자 수동 입력");
     }
     setManualModalOpen(true);
@@ -508,7 +557,7 @@ export const AttendanceTab: React.FC = () => {
       setManualError("근로자를 선택해주십시오.");
       return;
     }
-    if (!manualCheckIn && !manualCheckOut) {
+    if (!manualCheckIn && !manualCheckOut && !NON_WORK_STATUS.has(manualStatus)) {
       setManualError("출근 또는 퇴근 시각 중 하나는 입력해주십시오.");
       return;
     }
@@ -528,6 +577,7 @@ export const AttendanceTab: React.FC = () => {
         workDate: manualWorkDate,
         checkInAt: manualCheckIn ? zonedWallTimeToUtcIso(manualWorkDate, manualCheckIn, tz) : null,
         checkOutAt: manualCheckOut ? zonedWallTimeToUtcIso(manualWorkDate, manualCheckOut, tz) : null,
+        status: manualStatus,
         note: manualNote.trim() || "관리자 수동 입력",
       });
       await runQuery();
@@ -575,12 +625,21 @@ export const AttendanceTab: React.FC = () => {
       const lastDay = new Date(year, month, 0).getDate();
       const monthTo = `${yStr}-${mStr}-${String(lastDay).padStart(2, "0")}`;
       const monthRecords = await fetchAttendance({ fromDate: monthFrom, toDate: monthTo });
+      const exportWorkers = workerSubset && workerSubset.length > 0
+        ? workerSubset
+        : excludeRetired
+          ? activeWorkers
+          : workers;
+      const exportWorkerIds = new Set(exportWorkers.map((w) => w.id).filter(Boolean));
+      const exportRecords = excludeRetired || workerSubset
+        ? monthRecords.filter((record) => exportWorkerIds.has(record.workerId))
+        : monthRecords;
 
       const ctx = {
         year,
         month,
-        workers: workerSubset && workerSubset.length > 0 ? workerSubset : workers,
-        records: monthRecords,
+        workers: exportWorkers,
+        records: exportRecords,
         holidays,
         settings,
         companyName: settings.site.companyName,
@@ -636,13 +695,7 @@ export const AttendanceTab: React.FC = () => {
           holidayHours: isConfirmed ? effective.holidayHours : bd?.holidayHours || 0,
           holidayOvertimeHours: isConfirmed ? effective.holidayOvertimeHours : bd?.holidayOvertimeHours || 0,
           manDays,
-          status: isMissingCheckout(r)
-            ? "퇴근 누락"
-            : r.checkInAt && r.checkOutAt
-              ? "정상"
-              : r.status === "absent"
-                ? "결근"
-                : "근무 중",
+          status: displayStatusLabel(r, Boolean(isMissingCheckout(r))),
           confirmed: isConfirmed,
         };
       });
@@ -750,9 +803,20 @@ export const AttendanceTab: React.FC = () => {
             />
           </div>
           <div>
-            <label className="block text-[10px] font-bold text-slate-500 mb-1 flex items-center gap-1">
-              <Users className="w-3 h-3" /> 근로자
-            </label>
+            <div className="mb-1 flex items-center justify-between gap-2">
+              <label className="text-[10px] font-bold text-slate-500 flex items-center gap-1">
+                <Users className="w-3 h-3" /> 근로자
+              </label>
+              <label className="inline-flex items-center gap-1.5 text-[10px] font-semibold text-slate-500 cursor-pointer select-none">
+                <input
+                  type="checkbox"
+                  checked={excludeRetired}
+                  onChange={(e) => setExcludeRetired(e.target.checked)}
+                  className="h-3.5 w-3.5 rounded border-slate-300 text-slate-900 focus:ring-slate-400"
+                />
+                퇴사자 제외
+              </label>
+            </div>
             <select
               value={workerId}
               onChange={(e) => setWorkerId(e.target.value)}
@@ -766,14 +830,10 @@ export const AttendanceTab: React.FC = () => {
               ))}
             </select>
           </div>
-          <button
-            onClick={() => void runQuery()}
-            disabled={loading}
-            className="px-4 py-2 bg-blue-600 text-white text-xs font-bold rounded hover:bg-blue-700 disabled:opacity-50 flex items-center justify-center gap-1.5"
-          >
-            {loading ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Filter className="w-3.5 h-3.5" />}
-            조회
-          </button>
+          <div className="rounded border border-slate-200 bg-slate-50 px-3 py-2 text-[11px] font-semibold text-slate-500 flex items-center justify-center gap-1.5">
+            {loading ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Clock className="w-3.5 h-3.5" />}
+            자동 조회
+          </div>
         </div>
       </div>
 
@@ -931,15 +991,15 @@ export const AttendanceTab: React.FC = () => {
                     <div className="flex items-center gap-1.5 shrink-0">
                       {isMissingCheckout(r) ? (
                         <span className="text-[10px] px-2 py-0.5 rounded bg-rose-100 text-rose-700 font-bold border border-rose-200">
-                          퇴근 누락
+                          {displayStatusLabel(r, true)}
                         </span>
-                      ) : r.checkInAt && r.checkOutAt ? (
+                      ) : r.status === "normal" && r.checkInAt && r.checkOutAt ? (
                         <span className="text-[10px] px-2 py-0.5 rounded bg-emerald-100 text-emerald-700 font-bold border border-emerald-200">
-                          정상
+                          {displayStatusLabel(r, false)}
                         </span>
                       ) : (
                         <span className="text-[10px] px-2 py-0.5 rounded bg-slate-100 text-slate-600 font-semibold border border-slate-200">
-                          {r.status === "absent" ? "결근" : "근무 중"}
+                          {displayStatusLabel(r, false)}
                         </span>
                       )}
                       {expandedId === r.id ? (
@@ -1124,15 +1184,15 @@ export const AttendanceTab: React.FC = () => {
                     <Td className="text-center">
                       {isMissingCheckout(r) ? (
                         <span className="text-[10px] px-2 py-0.5 rounded bg-rose-100 text-rose-700 font-bold border border-rose-200">
-                          퇴근 누락
+                          {displayStatusLabel(r, true)}
                         </span>
-                      ) : r.checkInAt && r.checkOutAt ? (
+                      ) : r.status === "normal" && r.checkInAt && r.checkOutAt ? (
                         <span className="text-[10px] px-2 py-0.5 rounded bg-emerald-100 text-emerald-700 font-bold border border-emerald-200">
-                          정상
+                          {displayStatusLabel(r, false)}
                         </span>
                       ) : (
                         <span className="text-[10px] px-2 py-0.5 rounded bg-slate-100 text-slate-600 font-semibold border border-slate-200">
-                          {r.status === "absent" ? "결근" : "근무 중"}
+                          {displayStatusLabel(r, false)}
                         </span>
                       )}
                     </Td>
@@ -1259,6 +1319,20 @@ export const AttendanceTab: React.FC = () => {
                     className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm font-mono"
                     required
                   />
+                </div>
+                <div>
+                  <label className="block text-[11px] font-bold text-slate-500 mb-1">근태 상태</label>
+                  <select
+                    value={manualStatus}
+                    onChange={(e) => setManualStatus(e.target.value as AttendanceStatus)}
+                    className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm bg-white"
+                  >
+                    {ATTENDANCE_STATUS_OPTIONS.map((option) => (
+                      <option key={option.value} value={option.value}>
+                        {option.label}
+                      </option>
+                    ))}
+                  </select>
                 </div>
                 <div>
                   <label className="block text-[11px] font-bold text-slate-500 mb-1">관리 메모</label>

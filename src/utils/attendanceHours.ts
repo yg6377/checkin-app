@@ -19,6 +19,29 @@ function overlapMinutes(start: number, end: number, windowStart: number, windowE
   return Math.max(0, Math.min(end, windowEnd) - Math.max(start, windowStart));
 }
 
+function overlapWorkMinutes(
+  start: number,
+  end: number,
+  windowStart: number,
+  windowEnd: number,
+  breakStart?: number,
+  breakEnd?: number
+): number {
+  const baseMinutes = overlapMinutes(start, end, windowStart, windowEnd);
+  if (breakStart === undefined || breakEnd === undefined || baseMinutes <= 0) return baseMinutes;
+
+  let breakMinutes = overlapMinutes(start, end, Math.max(windowStart, breakStart), Math.min(windowEnd, breakEnd));
+  if (end > 1440) {
+    breakMinutes += overlapMinutes(
+      start,
+      end,
+      Math.max(windowStart, breakStart + 1440),
+      Math.min(windowEnd, breakEnd + 1440)
+    );
+  }
+  return Math.max(0, baseMinutes - breakMinutes);
+}
+
 function getBaseManDays(netHours: number, standardHours: number): number {
   if (netHours <= 0) return 0;
   if (netHours <= standardHours / 2) return 0.5;
@@ -169,9 +192,11 @@ export function calculateDailyBreakdown(
 
   // 점심시간 차감
   let breakMinutes = 0;
+  let lunchStart: number | undefined;
+  let lunchEnd: number | undefined;
   if (workTime.lunchStart && workTime.lunchEnd) {
-    const lunchStart = hhmmToMinutes(workTime.lunchStart);
-    let lunchEnd = hhmmToMinutes(workTime.lunchEnd);
+    lunchStart = hhmmToMinutes(workTime.lunchStart);
+    lunchEnd = hhmmToMinutes(workTime.lunchEnd);
     if (lunchEnd <= lunchStart) lunchEnd += 1440;
     breakMinutes += overlapMinutes(startMinutes, endMinutes, lunchStart, lunchEnd);
     if (endMinutes > 1440) {
@@ -234,11 +259,28 @@ export function calculateDailyBreakdown(
     };
   }
 
+  const regularStart = hhmmToMinutes(workTime.defaultCheckIn);
+  let regularEnd = hhmmToMinutes(workTime.defaultCheckOut);
+  if (regularEnd <= regularStart) regularEnd += 1440;
+
+  const earlyStart = hhmmToMinutes(dailyWorkerRules.earlyMorningStart);
+  let earlyEnd = hhmmToMinutes(dailyWorkerRules.earlyMorningEnd);
+  if (earlyEnd <= earlyStart) earlyEnd += 1440;
+
+  const regularHours = Math.min(
+    standardHours,
+    overlapWorkMinutes(startMinutes, endMinutes, regularStart, regularEnd, lunchStart, lunchEnd) / 60
+  );
+  const earlyOvertimeHours =
+    overlapWorkMinutes(startMinutes, endMinutes, earlyStart, earlyEnd, lunchStart, lunchEnd) / 60;
+  const afterRegularOvertimeHours =
+    overlapWorkMinutes(startMinutes, endMinutes, regularEnd, endMinutes, lunchStart, lunchEnd) / 60;
+
   return {
     ...EMPTY_BREAKDOWN,
     workHours: netHours,
-    regularHours: Math.min(netHours, standardHours),
-    overtimeHours: Math.max(0, netHours - standardHours),
+    regularHours,
+    overtimeHours: earlyOvertimeHours + afterRegularOvertimeHours,
     nightHours,
   };
 }
