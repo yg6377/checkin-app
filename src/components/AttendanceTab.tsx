@@ -31,7 +31,13 @@ import {
   AttendanceViewRow,
 } from "../utils/excelExporter";
 import { calculateDailyBreakdown, getDayType, isHolidayDate } from "../utils/attendanceHours";
-import { formatZonedTime, getAppTimeZone, getZonedYmd, zonedWallTimeToUtcIso } from "../utils/datetime";
+import {
+  formatZonedTime,
+  getAppTimeZone,
+  getZonedClockMinutes,
+  getZonedYmd,
+  zonedWallTimeToUtcIso,
+} from "../utils/datetime";
 
 // ============================================================
 // 날짜 헬퍼
@@ -74,6 +80,9 @@ const ATTENDANCE_STATUS_OPTIONS: { value: AttendanceStatus; label: string }[] = 
   { value: "leave_of_absence", label: "휴직" },
   { value: "holiday_work", label: "휴일근무" },
 ];
+
+// 이 시각(설정 타임존 벽시계 기준) 이전 출근 타각은 이례적인 것으로 보고 빨간색으로 표시한다.
+const EARLY_CHECK_IN_LIMIT_MINUTES = 6 * 60;
 
 const NON_WORK_STATUS = new Set<AttendanceStatus>([
   "absent",
@@ -255,6 +264,17 @@ export const AttendanceTab: React.FC = () => {
 
   const isMissingCheckout = (r: AttendanceRecord) =>
     r.checkInAt && !r.checkOutAt && r.workDate < todayYmd;
+
+  // 공휴일·주말이면 날짜를 빨간색으로 강조한다.
+  const isRestDay = (workDate: string) => getDayType(workDate, holidays) !== "weekday";
+
+  // 06시 이전 출근 타각이면 출근 시각을 빨간색으로 강조한다.
+  const isEarlyCheckIn = (r: AttendanceRecord) => {
+    if (!r.checkInAt) return false;
+    const at = new Date(r.checkInAt);
+    if (Number.isNaN(at.getTime())) return false;
+    return getZonedClockMinutes(at, tz) < EARLY_CHECK_IN_LIMIT_MINUTES;
+  };
 
   const getRecordBreakdown = (r: AttendanceRecord) => {
     const worker = workerById.get(r.workerId);
@@ -982,7 +1002,13 @@ export const AttendanceTab: React.FC = () => {
                 >
                   <div className="flex items-start justify-between gap-2">
                     <div className="min-w-0">
-                      <div className="font-mono text-xs font-bold text-slate-800">{r.workDate}</div>
+                      <div
+                        className={`font-mono text-xs font-bold ${
+                          isRestDay(r.workDate) ? "text-rose-600" : "text-slate-800"
+                        }`}
+                      >
+                        {r.workDate}
+                      </div>
                       <div className="mt-0.5 truncate">
                         <span className="font-mono text-[10px] text-slate-400">{r.workerCode}</span>{" "}
                         <span className="font-semibold text-slate-800 text-sm">{r.workerName}</span>
@@ -1011,7 +1037,11 @@ export const AttendanceTab: React.FC = () => {
                   </div>
 
                   <div className="mt-2.5 flex items-center gap-3 text-xs font-mono">
-                    <span className="inline-flex items-center gap-1 text-emerald-700">
+                    <span
+                      className={`inline-flex items-center gap-1 ${
+                        isEarlyCheckIn(r) ? "font-bold text-rose-600" : "text-emerald-700"
+                      }`}
+                    >
                       <LogIn className="w-3 h-3" />
                       {formatZonedTime(r.checkInAt, tz)}
                     </span>
@@ -1144,14 +1174,22 @@ export const AttendanceTab: React.FC = () => {
                       isMissingCheckout(r) ? "bg-rose-50/40" : ""
                     } ${expandedId === r.id ? "bg-slate-50" : ""}`}
                   >
-                    <Td className="font-mono">{r.workDate}</Td>
+                    <Td
+                      className={`font-mono ${isRestDay(r.workDate) ? "font-bold text-rose-600" : ""}`}
+                    >
+                      {r.workDate}
+                    </Td>
                     <Td>
                       <div className="flex flex-col">
                         <span className="font-mono text-[10px] text-slate-400">{r.workerCode}</span>
                         <span className="font-semibold text-slate-800">{r.workerName}</span>
                       </div>
                     </Td>
-                    <Td className="text-center font-mono text-emerald-700">
+                    <Td
+                      className={`text-center font-mono ${
+                        isEarlyCheckIn(r) ? "font-bold text-rose-600" : "text-emerald-700"
+                      }`}
+                    >
                       <span className="inline-flex items-center gap-1">
                         <LogIn className="w-3 h-3" />
                         {formatZonedTime(r.checkInAt, tz)}
