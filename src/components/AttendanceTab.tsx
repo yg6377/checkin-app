@@ -84,6 +84,10 @@ const ATTENDANCE_STATUS_OPTIONS: { value: AttendanceStatus; label: string }[] = 
 // 이 시각(설정 타임존 벽시계 기준) 이전 출근 타각은 이례적인 것으로 보고 빨간색으로 표시한다.
 const EARLY_CHECK_IN_LIMIT_MINUTES = 6 * 60;
 
+// 이 구간(설정 타임존 벽시계 기준, 양 끝 포함) 안의 퇴근 타각은 정상 퇴근으로 보고 녹색으로 표시한다.
+const NORMAL_CHECK_OUT_FROM_MINUTES = 15 * 60 + 30;
+const NORMAL_CHECK_OUT_TO_MINUTES = 18 * 60;
+
 const NON_WORK_STATUS = new Set<AttendanceStatus>([
   "absent",
   "annual_leave",
@@ -274,6 +278,15 @@ export const AttendanceTab: React.FC = () => {
     const at = new Date(r.checkInAt);
     if (Number.isNaN(at.getTime())) return false;
     return getZonedClockMinutes(at, tz) < EARLY_CHECK_IN_LIMIT_MINUTES;
+  };
+
+  // 15:30~18:00 사이 퇴근 타각이면 퇴근 시각을 녹색으로 강조한다.
+  const isNormalCheckOut = (r: AttendanceRecord) => {
+    if (!r.checkOutAt) return false;
+    const at = new Date(r.checkOutAt);
+    if (Number.isNaN(at.getTime())) return false;
+    const minutes = getZonedClockMinutes(at, tz);
+    return minutes >= NORMAL_CHECK_OUT_FROM_MINUTES && minutes <= NORMAL_CHECK_OUT_TO_MINUTES;
   };
 
   const getRecordBreakdown = (r: AttendanceRecord) => {
@@ -1045,7 +1058,15 @@ export const AttendanceTab: React.FC = () => {
                       <LogIn className="w-3 h-3" />
                       {formatZonedTime(r.checkInAt, tz)}
                     </span>
-                    <span className={`inline-flex items-center gap-1 ${r.checkOutAt ? "text-rose-700" : "text-slate-300"}`}>
+                    <span
+                      className={`inline-flex items-center gap-1 ${
+                        isNormalCheckOut(r)
+                          ? "font-bold text-emerald-700"
+                          : r.checkOutAt
+                            ? "text-rose-700"
+                            : "text-slate-300"
+                      }`}
+                    >
                       <LogOut className="w-3 h-3" />
                       {formatZonedTime(r.checkOutAt, tz)}
                     </span>
@@ -1195,7 +1216,15 @@ export const AttendanceTab: React.FC = () => {
                         {formatZonedTime(r.checkInAt, tz)}
                       </span>
                     </Td>
-                    <Td className={`text-center font-mono ${r.checkOutAt ? "text-rose-700" : "text-slate-300"}`}>
+                    <Td
+                      className={`text-center font-mono ${
+                        isNormalCheckOut(r)
+                          ? "font-bold text-emerald-700"
+                          : r.checkOutAt
+                            ? "text-rose-700"
+                            : "text-slate-300"
+                      }`}
+                    >
                       <span className="inline-flex items-center gap-1">
                         <LogOut className="w-3 h-3" />
                         {formatZonedTime(r.checkOutAt, tz)}
